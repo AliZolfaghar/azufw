@@ -1,0 +1,99 @@
+"""
+UFW wrapper - handles all interactions with the firewall.
+"""
+
+import os
+import re
+import subprocess
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class Rule:
+    """Represents a single UFW rule."""
+    number: int
+    action: str
+    port: str
+    protocol: str
+    from_ip: str
+    comment: str = ""
+
+
+class UFWController:
+    """Controls UFW operations."""
+
+    def __init__(self):
+        self._check_sudo()
+
+    def _check_sudo(self):
+        """Check if running with root privileges."""
+        if os.geteuid() != 0:
+            raise PermissionError("Root privileges required. Please run with sudo.")
+
+    def _run_command(self, command: list[str]) -> str:
+        """Run a shell command and return output."""
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10
+            )
+            return result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Command failed: {' '.join(command)}\n{e.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"Command timed out: {' '.join(command)}")
+
+    def get_status(self) -> str:
+        """Get firewall status (active/inactive)."""
+        output = self._run_command(["ufw", "status"])
+        if "Status: active" in output:
+            return "active"
+        return "inactive"
+
+    def get_rules(self) -> list[Rule]:
+        """Get all numbered rules from UFW."""
+        output = self._run_command(["ufw", "status", "numbered"])
+        return self._parse_rules(output)
+
+    def _parse_rules(self, output: str) -> list[Rule]:
+        """Parse 'ufw status numbered' output into Rule objects."""
+        rules = []
+        lines = output.split("\n")
+
+        for line in lines:
+            # Match numbered rules like: [ 1] 22/tcp       ALLOW IN    Anywhere
+            match = re.match(
+                r"\[\s*(\d+)\]\s+"
+                r"(\S+)\s+"              # port/proto
+                r"(ALLOW(?:\s+IN)?|DENY(?:\s+IN)?|DENY(?:\s+OUT)?|ALLOW(?:\s+OUT)?|LIMIT(?:\s+IN)?)\s+"
+                r"(\S.*?)\s*$",          # from
+                line
+            )
+            if match:
+                number = int(match.group(1))
+                port_proto = match.group(2)
+                action = match.group(3).replace(" IN", "").replace(" OUT", "")
+                from_ip = match.group(4)
+
+                # Split port and protocol
+                if "/" in port_proto:
+                    parts = port_proto.rsplit("/", 1)
+                    port = parts[0]
+                    protocol = parts[1]
+                else:
+                    port = port_proto
+                    protocol = "any"
+
+                rules.append(Rule(
+                    number=number,
+                    action=action,
+                    port=port,
+                    protocol=protocol,
+                    from_ip=from_ip,
+                ))
+
+        return rules

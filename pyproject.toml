@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "azufw"
+version = "0.1.0"
+description = "A modern Terminal UI for UFW firewall management"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+dependencies = [
+    "textual>=0.52.0",
+]
+
+[project.scripts]
+azufw = "azufw.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/azufw"]
