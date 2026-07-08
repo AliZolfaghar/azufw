@@ -91,15 +91,15 @@ class UFWController:
             return rule
 
         cmd = ["ufw"]
-        if comment:
-            cmd.extend(["--comment", comment])
-
         if from_ip and from_ip not in ("Anywhere", "0.0.0.0/0"):
             cmd.extend([action.lower(), "from", from_ip, "to", "any", "port", port])
         elif protocol == "any":
             cmd.extend([action.lower(), port])
         else:
             cmd.extend([action.lower(), f"{port}/{protocol}"])
+
+        if comment:
+            cmd.extend(["comment", comment])
 
         self._run_command(cmd)
         return self.get_rules()[-1]
