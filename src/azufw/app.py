@@ -3,11 +3,204 @@ Main Textual application for azufw.
 """
 
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Header, Footer, DataTable, Static
+from textual.containers import Horizontal, Vertical, Container
+from textual.widgets import Header, Footer, DataTable, Static, Input, Select, Button, Label
+from textual.screen import ModalScreen
 from textual.binding import Binding
 
 from azufw.ufw import UFWController, Rule
+
+
+VALID_ACTIONS = ["ALLOW", "DENY", "LIMIT", "REJECT"]
+
+
+class RuleFormScreen(ModalScreen[dict | None]):
+    """Modal form for adding or editing a rule."""
+
+    CSS = """
+    RuleFormScreen {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.7);
+    }
+
+    #form-container {
+        width: 50;
+        height: auto;
+        padding: 2 3;
+        background: #1a1a2e;
+        border: solid #2d2d5e;
+    }
+
+    #form-title {
+        text-style: bold;
+        padding: 0 0 1 0;
+    }
+
+    Label {
+        margin: 1 0 0 0;
+        color: #aaaaaa;
+    }
+
+    Input, Select {
+        margin: 0 0 0 0;
+    }
+
+    #form-buttons {
+        margin: 2 0 0 0;
+        align: center middle;
+    }
+
+    Button {
+        margin: 0 1;
+    }
+
+    #form-error {
+        color: #ff6b6b;
+        text-align: center;
+        margin: 1 0 0 0;
+    }
+    """
+
+    def __init__(self, rule: Rule | None = None) -> None:
+        super().__init__()
+        self.rule = rule
+
+    def compose(self) -> ComposeResult:
+        title = "Edit Rule" if self.rule else "Add Rule"
+        yield Container(
+            Static(f"[bold]{title}[/]", id="form-title"),
+            Label("Action"),
+            Select(
+                [(a, a) for a in VALID_ACTIONS],
+                id="action-select",
+                value=self.rule.action if self.rule else "ALLOW",
+            ),
+            Label("Port"),
+            Input(
+                placeholder="e.g. 22, 80, 3000",
+                id="port-input",
+                value=self.rule.port if self.rule else "",
+            ),
+            Label("Protocol"),
+            Select(
+                [("tcp", "tcp"), ("udp", "udp")],
+                id="protocol-select",
+                value=self.rule.protocol if self.rule else "tcp",
+            ),
+            Label("From IP"),
+            Input(
+                placeholder="e.g. Anywhere, 192.168.1.0/24",
+                id="from-input",
+                value=self.rule.from_ip if self.rule else "Anywhere",
+            ),
+            Label("Comment"),
+            Input(
+                placeholder="Optional description",
+                id="comment-input",
+                value=self.rule.comment if self.rule else "",
+            ),
+            Static(id="form-error"),
+            Horizontal(
+                Button("Save", id="save-btn", variant="primary"),
+                Button("Cancel", id="cancel-btn"),
+                id="form-buttons",
+            ),
+            id="form-container",
+        )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel-btn":
+            self.dismiss(None)
+            return
+
+        if event.button.id == "save-btn":
+            self._save()
+
+    def _save(self) -> None:
+        action = self.query_one("#action-select", Select).value
+        port = self.query_one("#port-input", Input).value.strip()
+        protocol = self.query_one("#protocol-select", Select).value
+        from_ip = self.query_one("#from-input", Input).value.strip()
+        comment = self.query_one("#comment-input", Input).value.strip()
+
+        if not port:
+            self.query_one("#form-error", Static).update("⚠️ Port is required")
+            return
+        if not port.isdigit() or not (1 <= int(port) <= 65535):
+            self.query_one("#form-error", Static).update("⚠️ Port must be a number (1-65535)")
+            return
+        if not from_ip:
+            from_ip = "Anywhere"
+
+        self.dismiss({
+            "action": action,
+            "port": port,
+            "protocol": protocol,
+            "from_ip": from_ip,
+            "comment": comment,
+        })
+
+
+class ConfirmDeleteScreen(ModalScreen[bool]):
+    """Modal confirmation for deleting a rule."""
+
+    CSS = """
+    ConfirmDeleteScreen {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.7);
+    }
+
+    #confirm-container {
+        width: 40;
+        height: auto;
+        padding: 2 3;
+        background: #1a1a2e;
+        border: solid #2d2d5e;
+    }
+
+    #confirm-title {
+        text-style: bold;
+        padding: 0 0 1 0;
+    }
+
+    #confirm-text {
+        color: #cccccc;
+    }
+
+    #confirm-buttons {
+        margin: 2 0 0 0;
+        align: center middle;
+    }
+
+    Button {
+        margin: 0 1;
+    }
+    """
+
+    def __init__(self, rule: Rule) -> None:
+        super().__init__()
+        self.rule = rule
+
+    def compose(self) -> ComposeResult:
+        yield Container(
+            Static("[bold]⚠️ Delete Rule[/]", id="confirm-title"),
+            Static(
+                f"Are you sure you want to delete rule #{self.rule.number}?\n\n"
+                f"  [dim]Action:[/] [{self.rule.action.lower()}]{self.rule.action}[/]\n"
+                f"  [dim]Port:[/]   {self.rule.port}/{self.rule.protocol}\n"
+                f"  [dim]From:[/]   {self.rule.from_ip}",
+                id="confirm-text",
+            ),
+            Horizontal(
+                Button("Yes, Delete", id="confirm-yes", variant="error"),
+                Button("Cancel", id="confirm-no"),
+                id="confirm-buttons",
+            ),
+            id="confirm-container",
+        )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "confirm-yes")
 
 
 class AzufwApp(App):
@@ -77,14 +270,6 @@ class AzufwApp(App):
         height: 1fr;
     }
 
-    #rule-details .detail-label {
-        color: #888888;
-    }
-
-    #rule-details .detail-value {
-        color: #e0e0e0;
-    }
-
     DataTable {
         height: 1fr;
         border: solid #2d2d5e;
@@ -101,7 +286,6 @@ class AzufwApp(App):
         color: #ffffff;
     }
 
-    /* Action colors */
     .action-allow {
         color: #00ff88;
         text-style: bold;
@@ -116,9 +300,17 @@ class AzufwApp(App):
         color: #ffaa00;
         text-style: bold;
     }
+
+    .action-reject {
+        color: #ff66aa;
+        text-style: bold;
+    }
     """
 
     BINDINGS = [
+        Binding("a", "add_rule", "Add"),
+        Binding("e", "edit_rule", "Edit"),
+        Binding("d", "delete_rule", "Delete"),
         Binding("r", "refresh", "Refresh"),
         Binding("q", "quit", "Quit"),
     ]
@@ -129,7 +321,6 @@ class AzufwApp(App):
         self.rules: list[Rule] = []
 
     def compose(self) -> ComposeResult:
-        """Create child widgets."""
         yield Header(show_clock=True)
         yield Horizontal(
             Vertical(
@@ -143,6 +334,9 @@ class AzufwApp(App):
                 Static("🔥 Help & Details", classes="section-title"),
                 Static(
                     " [bold]Keyboard Shortcuts[/]\n"
+                    "  [dim]a[/]     Add rule\n"
+                    "  [dim]e[/]     Edit selected rule\n"
+                    "  [dim]d[/]     Delete selected rule\n"
                     "  [dim]↑/↓[/]  Navigate rules\n"
                     "  [dim]r[/]     Refresh\n"
                     "  [dim]q[/]     Quit\n",
@@ -156,28 +350,60 @@ class AzufwApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        """Called when app is mounted."""
         table = self.query_one("#rules-table", DataTable)
         table.cursor_type = "row"
         table.zebra_stripes = True
-
         self.refresh_data()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        """Update rule details when cursor moves to a different row."""
         if event.cursor_row is not None and event.cursor_row < len(self.rules):
             self._show_rule_details(self.rules[event.cursor_row])
 
+    def _get_selected_rule(self) -> Rule | None:
+        table = self.query_one("#rules-table", DataTable)
+        if table.cursor_row is not None and table.cursor_row < len(self.rules):
+            return self.rules[table.cursor_row]
+        return None
+
+    def action_add_rule(self) -> None:
+        def on_result(result: dict | None) -> None:
+            if result is None:
+                return
+            self.ufw.add_rule(**result)
+            self.refresh_data()
+        self.push_screen(RuleFormScreen(), on_result)
+
+    def action_edit_rule(self) -> None:
+        rule = self._get_selected_rule()
+        if rule is None:
+            return
+
+        def on_result(result: dict | None) -> None:
+            if result is None:
+                return
+            self.ufw.edit_rule(rule.number, **result)
+            self.refresh_data()
+        self.push_screen(RuleFormScreen(rule=rule), on_result)
+
+    def action_delete_rule(self) -> None:
+        rule = self._get_selected_rule()
+        if rule is None:
+            return
+
+        def on_result(confirmed: bool) -> None:
+            if confirmed:
+                self.ufw.delete_rule(rule.number)
+                self.refresh_data()
+
+        self.push_screen(ConfirmDeleteScreen(rule=rule), on_result)
+
     def action_refresh(self) -> None:
-        """Refresh the rules list."""
         self.refresh_data()
 
     def action_quit(self) -> None:
-        """Quit the application."""
         self.exit()
 
     def refresh_data(self) -> None:
-        """Refresh all data from UFW."""
         self.rules = []
         try:
             self.ufw._check_sudo()
@@ -189,7 +415,6 @@ class AzufwApp(App):
             self._show_error(str(e))
 
     def _load_rules(self) -> None:
-        """Load and display firewall rules."""
         table = self.query_one("#rules-table", DataTable)
         table.clear()
         table.columns.clear()
@@ -221,12 +446,10 @@ class AzufwApp(App):
         self._update_summary(len(self.rules))
 
     def _clear_rule_details(self) -> None:
-        """Clear rule details display."""
         details = self.query_one("#rule-details", Static)
         details.update("📝 No rule selected")
 
     def _show_rule_details(self, rule: Rule) -> None:
-        """Display details of the selected rule."""
         details = self.query_one("#rule-details", Static)
         details.update(
             " [bold underline]📝 Selected Rule[/]\n\n"
@@ -238,33 +461,25 @@ class AzufwApp(App):
         )
 
     def _format_action(self, action: str) -> str:
-        """Format action with color markup."""
-        return f"[action-{action.lower()}]{action}[/]"
+        action_lower = action.lower()
+        if action_lower not in ("allow", "deny", "limit", "reject"):
+            return action
+        return f"[action-{action_lower}]{action}[/]"
 
     def _update_status(self) -> None:
-        """Update firewall status display."""
         status = self.ufw.get_status()
         status_widget = self.query_one("#firewall-status", Static)
-
-        if status == "active":
-            status_widget.update("🟢 Firewall: Active")
-        else:
-            status_widget.update("🔴 Firewall: Inactive")
+        status_widget.update("🟢 Firewall: Active" if status == "active" else "🔴 Firewall: Inactive")
 
     def _update_summary(self, rule_count: int) -> None:
-        """Update summary bar."""
         summary = self.query_one("#summary-bar", Static)
         summary.update(f"📊 Total: {rule_count} rules")
 
     def _show_error(self, message: str) -> None:
-        """Show error message."""
         table = self.query_one("#rules-table", DataTable)
         table.display = False
 
-        error_widget = Static(
-            f"⚠️ Error: {message}",
-            id="warning-message"
-        )
+        error_widget = Static(f"⚠️ Error: {message}", id="warning-message")
         self.query_one("#left-panel").mount(error_widget)
 
         self.query_one("#firewall-status", Static).update("")
