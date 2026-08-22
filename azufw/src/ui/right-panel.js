@@ -129,7 +129,7 @@ function renderDeleteError(panel, msg) {
 }
 
 function showEditMode(panel, rule) {
-  panel._state = 'edit';
+  panel._state = rule ? 'edit' : 'add';
   panel._currentRule = rule;
   panel._currentFieldIndex = 0;
   _destroyAllChildren(panel);
@@ -174,7 +174,7 @@ function showEditMode(panel, rule) {
         parent: panel,
         top: yPos,
         left: 14,
-        width: panel.width - 18,
+        right: 1,
         height: 1,
         content: ` [${field.choices.indexOf(field.value) + 1}/${field.choices.length}] ${field.value} `,
         tags: true,
@@ -191,7 +191,7 @@ function showEditMode(panel, rule) {
         parent: panel,
         top: yPos,
         left: 14,
-        width: panel.width - 18,
+        right: 1,
         height: 1,
         inputOnFocus: true,
         value: field.value || '',
