@@ -1,0 +1,28 @@
+{
+  "name": "azufw",
+  "version": "1.0.0",
+  "description": "TUI tool for managing UFW firewall on Linux with neo-blessed",
+  "main": "src/index.js",
+  "bin": {
+    "azufw": "bin/azufw.js"
+  },
+  "scripts": {
+    "start": "node bin/azufw.js"
+  },
+  "keywords": [
+    "ufw",
+    "firewall",
+    "tui",
+    "terminal",
+    "linux",
+    "neo-blessed"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "neo-blessed": "^0.2.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
