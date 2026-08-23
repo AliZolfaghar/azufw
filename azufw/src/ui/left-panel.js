@@ -28,6 +28,9 @@ function createLeftPanel(screen) {
 }
 
 function renderRuleList(list, rules, sshPort) {
+  const header = '{bold}{cyan-fg} #   Action   Port    Proto  From             To               Ver {/cyan-fg}{/bold}';
+  const divider = '{gray-fg}─── ──────── ─────── ────── ──────────────── ──────────────── ───{/gray-fg}';
+
   const items = rules.map(rule => {
     const isCritical = rule.port && parseInt(rule.port, 10) === sshPort;
     rule.isCritical = isCritical;
@@ -35,20 +38,28 @@ function renderRuleList(list, rules, sshPort) {
     let colorPrefix = '';
     let colorSuffix = '';
     if (isCritical) {
-      colorPrefix = '{yellow-fg}⚠ ';
-      colorSuffix = ' ★ CRITICAL{/yellow-fg}';
+      colorPrefix = '{yellow-fg}';
+      colorSuffix = '{/yellow-fg}';
     } else if (rule.action === 'ALLOW') {
-      colorPrefix = '{green-fg}✓ ';
+      colorPrefix = '{green-fg}';
       colorSuffix = '{/green-fg}';
     } else if (rule.action === 'DENY' || rule.action === 'REJECT') {
-      colorPrefix = '{red-fg}✗ ';
+      colorPrefix = '{red-fg}';
       colorSuffix = '{/red-fg}';
     }
 
-    return `${colorPrefix}[${rule.number}]  ${rule.action.padEnd(7)}  ${(rule.port || '-').padEnd(6)}  ${rule.protocol.toUpperCase().padEnd(4)}  ${rule.comment || '-'}${colorSuffix}`;
+    const num = String(rule.number).padStart(3);
+    const action = rule.action.padEnd(8);
+    const port = (rule.port || '-').padEnd(7);
+    const proto = rule.protocol.toUpperCase().padEnd(6);
+    const from = (rule.from || '-').substring(0, 16).padEnd(16);
+    const to = (rule.to || '-').substring(0, 16).padEnd(16);
+    const ver = rule.getIpVersion().padEnd(3);
+
+    return `${colorPrefix}${num}  ${action} ${port} ${proto} ${from} ${to} ${ver}${colorSuffix}`;
   });
 
-  list.setItems(items.length > 0 ? items : ['{gray-fg}No rules found.{/gray-fg}']);
+  list.setItems([header, divider, ...items]);
 }
 
 module.exports = { createLeftPanel, renderRuleList };

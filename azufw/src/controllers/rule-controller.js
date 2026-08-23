@@ -5,6 +5,8 @@ const Rule = require('../models/Rule');
 const { renderRuleList } = require('../ui/left-panel');
 const { showViewMode, showEditMode, getFormValues, cycleChoice, _highlightField } = require('../ui/right-panel');
 
+const LIST_HEADER_OFFSET = 2; // header + divider rows in the rule list
+
 class RuleController {
   constructor(listPanel, rightPanel, headerPanel, footerPanel, screen, historyCtrl, sshPort, ufwStatus) {
     this.list = listPanel;
@@ -18,6 +20,7 @@ class RuleController {
     this.rules = [];
     this.selectedRule = null;
     this.isProcessing = false;
+    this._modalActive = false;
   }
 
   async loadRules() {
@@ -34,7 +37,7 @@ class RuleController {
     this.screen.render();
 
     if (this.rules.length > 0) {
-      this.list.select(0);
+      this.list.select(LIST_HEADER_OFFSET);
       this.selectRule(0);
     } else {
       this.selectedRule = null;
@@ -45,24 +48,9 @@ class RuleController {
 
   selectRule(index, skipListSelect) {
     if (index < 0 || index >= this.rules.length) return;
-    if (!skipListSelect) this.list.select(index);
+    if (!skipListSelect) this.list.select(index + LIST_HEADER_OFFSET);
     this.selectedRule = this.rules[index];
     showViewMode(this.rightPanel, this.selectedRule, this.sshPort);
-
-    // Wire delete button
-    const rightRef = this.rightPanel;
-    if (rightRef._deleteBtn) {
-      rightRef._deleteBtn.removeAllListeners('press');
-      if (rightRef._isCritical) {
-        rightRef._deleteBtn.on('press', () => {
-          this.showDeleteError('Cannot delete SSH critical rule!');
-        });
-      } else {
-        rightRef._deleteBtn.on('press', () => {
-          this.deleteSelectedRule();
-        });
-      }
-    }
     this.screen.render();
   }
 
@@ -71,19 +59,99 @@ class RuleController {
     this.footer.updateContent(this.ufwStatus, processing);
   }
 
-  showDeleteError(msg) {
-    if (this.rightPanel._deleteErrorBox) this.rightPanel._deleteErrorBox.destroy();
-    this.rightPanel._deleteErrorBox = require('neo-blessed').box({
-      parent: this.rightPanel,
-      bottom: 3,
+  confirmDelete() {
+    if (!this.selectedRule) return;
+    if (this.isProcessing) return;
+
+    const rule = this.selectedRule;
+    const portStr = rule.port || 'all';
+
+    const overlay = require('neo-blessed').box({
+      parent: this.screen,
+      top: 'center',
+      left: 'center',
+      width: 50,
+      height: 12,
+      tags: true,
+      border: { type: 'line' },
+      style: {
+        border: { fg: '#e74c3c' },
+        bg: '#0d1b2a',
+      },
+    });
+
+    require('neo-blessed').box({
+      parent: overlay,
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 1,
+      content: '{center}{bold}{red-fg}Confirm Delete{/red-fg}{/bold}{/center}',
+      tags: true,
+      style: { bg: '#1a5276' },
+    });
+
+    require('neo-blessed').box({
+      parent: overlay,
+      top: 1,
       left: 1,
       right: 1,
-      height: 3,
-      content: `{center}{red-fg}${msg}{/red-fg}{/center}`,
+      height: 5,
+      content: [
+        '',
+        `  ${rule.action}  ${portStr}/${rule.protocol.toUpperCase()}`,
+        `  From: ${rule.from}`,
+        `  To:   ${rule.to}`,
+        rule.comment ? `  Comment: ${rule.comment}` : '',
+      ].join('\n'),
       tags: true,
-      style: { bg: '#1a1a2e' },
     });
+
+    require('neo-blessed').box({
+      parent: overlay,
+      top: 7,
+      left: 1,
+      right: 1,
+      height: 1,
+      content: '{center}{yellow-fg}Press Y to confirm, N to cancel{/yellow-fg}{/center}',
+      tags: true,
+    });
+
+    this._modalOverlay = overlay;
     this.screen.render();
+
+    this._modalActive = true;
+
+    const dismiss = () => {
+      this._modalActive = false;
+      if (this._modalOverlay) {
+        this._modalOverlay.hide();
+        const idx = this.screen.children.indexOf(this._modalOverlay);
+        if (idx !== -1) this.screen.children.splice(idx, 1);
+        this._modalOverlay.destroy();
+        this._modalOverlay = null;
+      }
+      this.screen.render();
+    };
+
+    const onKey = (ch, key) => {
+      if (!this._modalActive) return;
+      if (!key) return;
+      if (key.name === 'y' || key.name === 'Y') {
+        cleanup();
+        dismiss();
+        this.deleteSelectedRule();
+      } else if (key.name === 'n' || key.name === 'N' || key.name === 'escape' || key.name === 'q') {
+        cleanup();
+        dismiss();
+      }
+    };
+
+    const cleanup = () => {
+      this.screen.removeListener('keypress', onKey);
+    };
+
+    this.screen.on('keypress', onKey);
   }
 
   async deleteSelectedRule() {
@@ -91,7 +159,6 @@ class RuleController {
     if (this.isProcessing) return;
 
     this.showProcessing(true);
-    // Clear panel children
     while (this.rightPanel.children.length > 0) {
       const child = this.rightPanel.children[0];
       child.detach();
@@ -110,15 +177,12 @@ class RuleController {
   enterEditMode() {
     if (!this.selectedRule) return;
     showEditMode(this.rightPanel, this.selectedRule);
-    this._wireFormEvents();
     this.screen.render();
-    // Focus first input
     this._focusCurrentField();
   }
 
   enterAddMode() {
     showEditMode(this.rightPanel, null);
-    this._wireFormEvents();
     this.screen.render();
     this._focusCurrentField();
   }
@@ -132,19 +196,19 @@ class RuleController {
     }
   }
 
-  _wireFormEvents() {
-    const panel = this.rightPanel;
-
-    // Save button
-    if (panel._saveBtn) {
-      panel._saveBtn.removeAllListeners('press');
-      panel._saveBtn.on('press', () => this._handleSave());
+  _endCurrentFieldRead() {
+    const fields = ['action', 'port', 'protocol', 'from', 'to', 'comment'];
+    const key = fields[this.rightPanel._currentFieldIndex];
+    const widget = this.rightPanel._formInputs[key];
+    if (widget && !widget._choices && widget._reading && typeof widget._done === 'function') {
+      try {
+        widget._done('stop');
+      } catch (_e) {
+        widget._reading = false;
+      }
     }
-
-    // Cancel button
-    if (panel._cancelBtn) {
-      panel._cancelBtn.removeAllListeners('press');
-      panel._cancelBtn.on('press', () => this._handleCancel());
+    if (this.screen.grabKeys) {
+      this.screen.grabKeys = false;
     }
   }
 
@@ -178,17 +242,18 @@ class RuleController {
     this.screen.render();
 
     if (this.selectedRule) {
-      // Edit mode: delete old, add new
-      ufwExecutor.deleteRule(this.selectedRule.number);
+      this.historyCtrl.addDeletedRule(this.selectedRule);
+      ufwExecutor.editRule(this.selectedRule, newRule);
+    } else {
+      ufwExecutor.addRule(newRule);
     }
-    ufwExecutor.addRule(newRule);
 
     this.loadRules();
   }
 
   _handleCancel() {
     if (this.selectedRule) {
-      this.selectRule(this.list.selected || 0);
+      this.selectRule((this.list.selected || LIST_HEADER_OFFSET) - LIST_HEADER_OFFSET);
     } else {
       showViewMode(this.rightPanel, null, this.sshPort);
       this.screen.render();
@@ -197,7 +262,7 @@ class RuleController {
 
   moveUp() {
     if (this.rules.length === 0) return;
-    const current = this.list.selected || 0;
+    const current = (this.list.selected || LIST_HEADER_OFFSET) - LIST_HEADER_OFFSET;
     if (current > 0) {
       this.selectRule(current - 1);
     }
@@ -205,7 +270,7 @@ class RuleController {
 
   moveDown() {
     if (this.rules.length === 0) return;
-    const current = this.list.selected || 0;
+    const current = (this.list.selected || LIST_HEADER_OFFSET) - LIST_HEADER_OFFSET;
     if (current < this.rules.length - 1) {
       this.selectRule(current + 1);
     }
@@ -213,8 +278,19 @@ class RuleController {
 
   tabField() {
     if (this.rightPanel._state !== 'edit' && this.rightPanel._state !== 'add') return;
+    this._endCurrentFieldRead();
     const fieldCount = 6;
     this.rightPanel._currentFieldIndex = (this.rightPanel._currentFieldIndex + 1) % fieldCount;
+    _highlightField(this.rightPanel, this.rightPanel._currentFieldIndex);
+    this._focusCurrentField();
+    this.screen.render();
+  }
+
+  tabFieldBack() {
+    if (this.rightPanel._state !== 'edit' && this.rightPanel._state !== 'add') return;
+    this._endCurrentFieldRead();
+    const fieldCount = 6;
+    this.rightPanel._currentFieldIndex = (this.rightPanel._currentFieldIndex - 1 + fieldCount) % fieldCount;
     _highlightField(this.rightPanel, this.rightPanel._currentFieldIndex);
     this._focusCurrentField();
     this.screen.render();
@@ -227,7 +303,10 @@ class RuleController {
   }
 
   handleListSelect(index) {
-    this.selectRule(index, true);
+    const ruleIndex = index - LIST_HEADER_OFFSET;
+    if (ruleIndex >= 0 && ruleIndex < this.rules.length) {
+      this.selectRule(ruleIndex, true);
+    }
   }
 }
 

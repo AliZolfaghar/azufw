@@ -22,7 +22,7 @@ function createFooter(screen) {
       footer.setContent(` {center}{yellow-fg}⏳ Processing...{/yellow-fg}{/center}`);
     } else {
       const statusColor = status === 'active' ? '{green-fg}● Active{/green-fg}' : '{red-fg}● Inactive{/red-fg}';
-      footer.setContent(` Status: ${statusColor}  │  A:Add  Enter:Edit  D:Delete  R:Refresh  H:History  Q:Quit`);
+      footer.setContent(` Status: ${statusColor}  │  A:Add  Enter:Edit  D:Delete  R:Refresh  H:History  Q:Quit  │  Form: Tab:Next  Space:Change  Ctrl+S:Save  Esc:Cancel`);
     }
     screen.render();
   };

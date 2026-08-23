@@ -17,6 +17,17 @@ class Rule {
     return this.action;
   }
 
+  getIpVersion() {
+    const detect = (ip) => {
+      if (!ip || ip === 'any' || ip === '0.0.0.0' || ip === 'Anywhere') return '4';
+      if (ip.includes(':')) return '6';
+      return '4';
+    };
+    const fromVer = detect(this.from);
+    const toVer = detect(this.to);
+    return fromVer === toVer ? fromVer : '4/6';
+  }
+
   getShortDisplay() {
     const portStr = this.port || 'all';
     return `[${this.number}]  ${this.action.padEnd(7)}  ${portStr.padEnd(6)}  ${this.protocol.toUpperCase().padEnd(4)}  ${this.comment || '-'}`;
@@ -58,7 +69,7 @@ class Rule {
   }
 
   static parseFromNumberedStatus(line) {
-    // Example: "[ 1] 22/tcp    ALLOW IN    Anywhere"
+    // Example: "[ 1] 22/tcp    ALLOW IN    Anywhere             My comment"
     const re = /^\[\s*(\d+)\]\s+(\S+)\s+(ALLOW|DENY|REJECT)\s+(IN|OUT)\s+(.+)$/;
     const match = line.trim().match(re);
     if (!match) return null;
@@ -67,7 +78,7 @@ class Rule {
     const portPart = match[2];
     const action = match[3];
     const direction = match[4].toLowerCase();
-    const destination = match[5].trim();
+    const destinationRaw = match[5];
 
     let port = '';
     let protocol = 'tcp';
@@ -79,13 +90,23 @@ class Rule {
       port = portPart;
     }
 
+    // Extract comment: "Anywhere  My comment" -> from=Anywhere, comment=My comment
+    let from = destinationRaw.trim();
+    let comment = '';
+    const commentMatch = destinationRaw.match(/^(\S+)\s+(.+)$/);
+    if (commentMatch) {
+      from = commentMatch[1];
+      comment = commentMatch[2].trim();
+    }
+
     return new Rule({
       number,
       action,
       port,
       protocol,
-      from: destination === 'Anywhere' ? '0.0.0.0' : destination,
+      from: from === 'Anywhere' ? '0.0.0.0' : from,
       to: 'any',
+      comment,
       direction,
     });
   }

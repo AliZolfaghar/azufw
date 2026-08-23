@@ -65,7 +65,7 @@ function deleteRule(number) {
     return { success: false, output: 'Rule not found' };
   }
 
-  const cmd = `ufw delete ${number}`;
+  const cmd = `ufw --force delete ${number}`;
   const result = runCmd(cmd);
   return { success: result.success, output: result.output };
 }

@@ -8,6 +8,7 @@ const { createHeader } = require('./ui/header');
 const { createFooter } = require('./ui/footer');
 const { createLeftPanel, renderRuleList } = require('./ui/left-panel');
 const { createRightPanel, showViewMode, showEditMode, showHistoryMode, getFormValues, cycleChoice, _highlightField, selectHistoryItem, getSelectedHistoryIndex } = require('./ui/right-panel');
+const { showWelcome } = require('./ui/welcome');
 const ufwExecutor = require('./cli/ufw-executor');
 const RuleController = require('./controllers/rule-controller');
 const HistoryController = require('./controllers/history-controller');
@@ -30,6 +31,9 @@ async function main() {
   // Create screen
   const screen = createScreen();
 
+  // Show welcome/acceptance popup
+  await showWelcome(screen);
+
   // Create UI components
   const header = createHeader(screen);
   const footer = createFooter(screen);
@@ -47,13 +51,17 @@ async function main() {
 
   // Up/Down: navigate rules
   leftPanel.on('select item', (item, index) => {
+    if (ruleCtrl._modalActive) return;
     ruleCtrl.handleListSelect(index);
   });
 
   // Global key bindings
   screen.key(['up'], () => {
+    if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view') {
       ruleCtrl.moveUp();
+    } else if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
+      ruleCtrl.tabFieldBack();
     } else if (rightPanel._state === 'history') {
       const idx = getSelectedHistoryIndex(rightPanel);
       selectHistoryItem(rightPanel, idx - 1);
@@ -62,8 +70,11 @@ async function main() {
   });
 
   screen.key(['down'], () => {
+    if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view') {
       ruleCtrl.moveDown();
+    } else if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
+      ruleCtrl.tabField();
     } else if (rightPanel._state === 'history') {
       const idx = getSelectedHistoryIndex(rightPanel);
       selectHistoryItem(rightPanel, idx + 1);
@@ -72,6 +83,7 @@ async function main() {
   });
 
   screen.key(['enter'], () => {
+    if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view') {
       ruleCtrl.enterEditMode();
     } else if (rightPanel._state === 'history') {
@@ -88,6 +100,7 @@ async function main() {
   });
 
   screen.key(['escape'], () => {
+    if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
       ruleCtrl._handleCancel();
     } else if (rightPanel._state === 'history') {
@@ -97,30 +110,44 @@ async function main() {
   });
 
   screen.key(['a'], () => {
+    if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view' || rightPanel._state === 'history') {
       ruleCtrl.enterAddMode();
     }
   });
 
   screen.key(['r'], () => {
+    if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view' || rightPanel._state === 'history') {
       ruleCtrl.loadRules();
     }
   });
 
   screen.key(['q', 'C-c'], () => {
+    if (ruleCtrl._modalActive) return;
+    if (rightPanel._state === 'edit' || rightPanel._state === 'add') return;
     return process.exit(0);
   });
 
   // Tab: move between form fields
   screen.key(['tab'], () => {
+    if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
       ruleCtrl.tabField();
     }
   });
 
+  // Shift+Tab: move between form fields backwards
+  screen.key(['S-tab'], () => {
+    if (ruleCtrl._modalActive) return;
+    if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
+      ruleCtrl.tabFieldBack();
+    }
+  });
+
   // Space: cycle choices in dropdown fields
   screen.key(['space'], () => {
+    if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
       const fields = ['action', 'port', 'protocol', 'from', 'to', 'comment'];
       const key = fields[rightPanel._currentFieldIndex];
@@ -133,6 +160,7 @@ async function main() {
 
   // Ctrl+S: save form
   screen.key(['C-s'], () => {
+    if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
       ruleCtrl._handleSave();
     }
@@ -140,6 +168,7 @@ async function main() {
 
   // H: show history
   screen.key(['h'], () => {
+    if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view') {
       const entries = historyCtrl.getEntries();
       showHistoryMode(rightPanel, entries);
@@ -149,15 +178,17 @@ async function main() {
 
   // Delete key: delete rule
   screen.key(['delete', 'backspace'], () => {
+    if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view' && ruleCtrl.selectedRule && !ruleCtrl.selectedRule.isCritical) {
-      ruleCtrl.deleteSelectedRule();
+      ruleCtrl.confirmDelete();
     }
   });
 
   // D: delete rule
   screen.key(['d'], () => {
+    if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view' && ruleCtrl.selectedRule && !ruleCtrl.selectedRule.isCritical) {
-      ruleCtrl.deleteSelectedRule();
+      ruleCtrl.confirmDelete();
     }
   });
 

@@ -7,6 +7,8 @@ function createScreen() {
     smartCSR: true,
     title: 'AZUFW — UFW Firewall Manager',
     fullUnicode: false,
+    mouse: true,
+    ignoreLocked: ['C-s', 'tab', 'up', 'down', 'S-tab'],
   });
 
   return screen;

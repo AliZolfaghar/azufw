@@ -2,8 +2,30 @@
 
 const blessed = require('neo-blessed');
 
+// Safely end any active input "read" session so screen.grabKeys
+// is released before children get destroyed. Otherwise every
+// global key binding stays dead for the rest of the session.
+function _closeFormInputs(panel) {
+  const inputs = panel._formInputs || {};
+  Object.keys(inputs).forEach(key => {
+    const widget = inputs[key];
+    if (!widget || widget._choices) return;
+    if (widget._reading && typeof widget._done === 'function') {
+      try {
+        widget._done('stop');
+      } catch (_e) {
+        widget._reading = false;
+      }
+    }
+  });
+  if (panel.screen && panel.screen.grabKeys) {
+    panel.screen.grabKeys = false;
+  }
+}
+
 // Helper: destroy all children of a panel
 function _destroyAllChildren(panel) {
+  _closeFormInputs(panel);
   while (panel.children.length > 0) {
     const child = panel.children[0];
     child.detach();
@@ -34,8 +56,6 @@ function createRightPanel(screen) {
   panel._formInputs = {};
   panel._formFields = ['action', 'port', 'protocol', 'from', 'to', 'comment'];
   panel._currentFieldIndex = 0;
-  panel._saveBtn = null;
-  panel._cancelBtn = null;
 
   return panel;
 }
@@ -82,50 +102,13 @@ function showViewMode(panel, rule, sshPort) {
     top: 0,
     left: 1,
     right: 1,
-    height: '100%-4',
+    bottom: 0,
     content: details.join('\n'),
     tags: true,
     wrap: true,
   });
 
-  // Delete button (disabled for critical)
-  const deleteBtn = blessed.button({
-    parent: panel,
-    bottom: 0,
-    left: 1,
-    width: 12,
-    height: 3,
-    content: isCritical ? ' {red-fg}🔒 DELETE{/red-fg} ' : ' {red-fg}DELETE{/red-fg} ',
-    tags: true,
-    border: { type: 'line' },
-    style: {
-      border: { fg: '#e74c3c' },
-      fg: '#e74c3c',
-    },
-  });
-
-  if (isCritical) {
-    deleteBtn.on('press', () => {
-      renderDeleteError(panel, 'Cannot delete SSH critical rule!');
-    });
-  }
-
-  panel._deleteBtn = deleteBtn;
   panel._isCritical = isCritical;
-}
-
-function renderDeleteError(panel, msg) {
-  if (panel._deleteErrorBox) panel._deleteErrorBox.destroy();
-  panel._deleteErrorBox = blessed.box({
-    parent: panel,
-    bottom: 3,
-    left: 1,
-    right: 1,
-    height: 3,
-    content: `{center}{red-fg}${msg}{/red-fg}{/center}`,
-    tags: true,
-    style: { bg: '#1a1a2e' },
-  });
 }
 
 function showEditMode(panel, rule) {
@@ -151,13 +134,13 @@ function showEditMode(panel, rule) {
     { key: 'action', label: 'Action', type: 'choice', choices: ['ALLOW', 'DENY', 'REJECT'], value: rule ? rule.action : 'ALLOW' },
     { key: 'port', label: 'Port', type: 'input', value: rule ? rule.port : '' },
     { key: 'protocol', label: 'Protocol', type: 'choice', choices: ['tcp', 'udp'], value: rule ? rule.protocol : 'tcp' },
-    { key: 'from', label: 'From IP', type: 'input', value: rule ? rule.from : '0.0.0.0' },
+    { key: 'from', label: 'From IP', type: 'input', value: rule ? rule.from : 'any' },
     { key: 'to', label: 'To IP', type: 'input', value: rule ? rule.to : 'any' },
     { key: 'comment', label: 'Comment', type: 'input', value: rule ? rule.comment : '' },
   ];
 
   fields.forEach((field, idx) => {
-    const yPos = 2 + idx * 2;
+    const yPos = 2 + idx;
 
     const labelBox = blessed.text({
       parent: panel,
@@ -200,43 +183,10 @@ function showEditMode(panel, rule) {
           fg: '#ffffff',
           focus: { bg: '#1a5276' },
         },
-        border: { type: 'line', style: { fg: '#5dade2' } },
       });
       panel._formInputs[field.key] = input;
     }
   });
-
-  // Buttons row
-  const saveBtn = blessed.button({
-    parent: panel,
-    bottom: 0,
-    left: 'center',
-    width: 14,
-    height: 3,
-    content: ' {green-fg}Save (Ctrl+S){/green-fg} ',
-    tags: true,
-    border: { type: 'line' },
-    style: {
-      border: { fg: '#27ae60' },
-    },
-  });
-
-  const cancelBtn = blessed.button({
-    parent: panel,
-    bottom: 0,
-    right: 1,
-    width: 14,
-    height: 3,
-    content: ' {red-fg}Cancel (Esc){/red-fg} ',
-    tags: true,
-    border: { type: 'line' },
-    style: {
-      border: { fg: '#e74c3c' },
-    },
-  });
-
-  panel._saveBtn = saveBtn;
-  panel._cancelBtn = cancelBtn;
 
   // Highlight first field
   _highlightField(panel, 0);
