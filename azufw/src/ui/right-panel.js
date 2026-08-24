@@ -38,7 +38,16 @@ function showViewMode(panel, rule, sshPort) {
   panel._currentRule = rule;
   _destroyAllChildren(panel);
 
-  const logo = '{center}{bold}{cyan-fg}AZUFW{/cyan-fg}{/bold}\n{center}{gray-fg}UFW Firewall Manager v1.0.0{/gray-fg}';
+  const logo = [
+    '{center}{cyan-fg} █████╗ ███████╗██╗   ██╗███████╗██╗    ██╗{/cyan-fg}',
+    '{center}{cyan-fg}██╔══██╗╚══███╔╝██║   ██║██╔════╝██║    ██║{/cyan-fg}',
+    '{center}{cyan-fg}███████║  ███╔╝ ██║   ██║█████╗  ██║ █╗ ██║{/cyan-fg}',
+    '{center}{cyan-fg}██╔══██║ ███╔╝  ██║   ██║██╔══╝  ██║███╗██║{/cyan-fg}',
+    '{center}{cyan-fg}██║  ██║███████╗╚██████╔╝██║     ╚███╔███╔╝{/cyan-fg}',
+    '{center}{cyan-fg}╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝      ╚══╝╚══╝ {/cyan-fg}',
+    '',
+    '{center}{gray-fg}UFW Firewall Manager v1.0.0{/gray-fg}',
+  ].join('\n');
 
   blessed.box({
     parent: panel,
