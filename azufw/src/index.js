@@ -184,14 +184,6 @@ async function main() {
     }
   });
 
-  // D: delete rule
-  screen.key(['d'], () => {
-    if (ruleCtrl._modalActive) return;
-    if (rightPanel._state === 'view' && ruleCtrl.selectedRule && !ruleCtrl.selectedRule.isCritical) {
-      ruleCtrl.confirmDelete();
-    }
-  });
-
   // Render
   screen.render();
 }
