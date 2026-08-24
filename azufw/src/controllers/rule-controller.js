@@ -1,9 +1,11 @@
 'use strict';
 
+const blessed = require('neo-blessed');
 const ufwExecutor = require('../cli/ufw-executor');
 const Rule = require('../models/Rule');
 const { renderRuleList } = require('../ui/left-panel');
-const { showViewMode, showEditMode, getFormValues, cycleChoice, _highlightField } = require('../ui/right-panel');
+const { showViewMode } = require('../ui/right-panel');
+const { showFormPopup } = require('../ui/form-popup');
 
 const LIST_HEADER_OFFSET = 2; // header + divider rows in the rule list
 
@@ -21,6 +23,7 @@ class RuleController {
     this.selectedRule = null;
     this.isProcessing = false;
     this._modalActive = false;
+    this.formPopup = null;
   }
 
   async loadRules() {
@@ -71,7 +74,7 @@ class RuleController {
       top: 'center',
       left: 'center',
       width: 50,
-      height: 12,
+      height: 14,
       tags: true,
       border: { type: 'line' },
       style: {
@@ -85,15 +88,17 @@ class RuleController {
       top: 0,
       left: 0,
       right: 0,
-      height: 1,
-      content: '{center}{bold}{red-fg}Confirm Delete{/red-fg}{/bold}{/center}',
+      height: 3,
+      content: '{bold}{red-fg}Confirm Delete{/red-fg}{/bold}',
       tags: true,
+      align: 'center',
+      valign: 'middle',
       style: { bg: '#1a5276' },
     });
 
     require('neo-blessed').box({
       parent: overlay,
-      top: 1,
+      top: 3,
       left: 1,
       right: 1,
       height: 5,
@@ -109,7 +114,7 @@ class RuleController {
 
     require('neo-blessed').box({
       parent: overlay,
-      top: 7,
+      top: 9,
       left: 1,
       right: 1,
       height: 1,
@@ -158,6 +163,9 @@ class RuleController {
     if (!this.selectedRule) return;
     if (this.isProcessing) return;
 
+    const ruleToDelete = this.selectedRule;
+    const ruleIndex = this.rules.findIndex(r => r.number === ruleToDelete.number);
+
     this.showProcessing(true);
     while (this.rightPanel.children.length > 0) {
       const child = this.rightPanel.children[0];
@@ -166,63 +174,61 @@ class RuleController {
     }
     this.screen.render();
 
-    const result = ufwExecutor.deleteRule(this.selectedRule.number);
+    const result = ufwExecutor.deleteRule(ruleToDelete.number);
     if (result.success) {
-      this.historyCtrl.addDeletedRule(this.selectedRule);
+      this.historyCtrl.addDeletedRule(ruleToDelete);
+      await this.loadRules();
+    } else {
+      this.showProcessing(false);
+      this._showErrorPopup('Delete Rule Failed', result.output || 'Unknown error', () => {
+        showViewMode(this.rightPanel, ruleToDelete, this.sshPort);
+        this.screen.render();
+      });
     }
-
-    await this.loadRules();
   }
 
   enterEditMode() {
     if (!this.selectedRule) return;
-    showEditMode(this.rightPanel, this.selectedRule);
-    this.screen.render();
-    this._focusCurrentField();
+    this._showForm(this.selectedRule);
   }
 
   enterAddMode() {
-    showEditMode(this.rightPanel, null);
-    this.screen.render();
-    this._focusCurrentField();
+    this._showForm(null);
   }
 
-  _focusCurrentField() {
-    const fields = ['action', 'port', 'protocol', 'from', 'to', 'comment'];
-    const key = fields[this.rightPanel._currentFieldIndex];
-    const widget = this.rightPanel._formInputs[key];
-    if (widget && widget.focus) {
-      widget.focus();
-    }
+  enterAddModeWithPreset(preset) {
+    const presetRule = new Rule({
+      number: 0,
+      action: preset.action,
+      port: preset.port,
+      protocol: preset.protocol,
+      from: preset.from,
+      to: preset.to,
+      comment: preset.comment,
+      direction: 'in',
+    });
+    this._showForm(presetRule);
   }
 
-  _endCurrentFieldRead() {
-    const fields = ['action', 'port', 'protocol', 'from', 'to', 'comment'];
-    const key = fields[this.rightPanel._currentFieldIndex];
-    const widget = this.rightPanel._formInputs[key];
-    if (widget && !widget._choices && widget._reading && typeof widget._done === 'function') {
-      try {
-        widget._done('stop');
-      } catch (_e) {
-        widget._reading = false;
-      }
-    }
-    if (this.screen.grabKeys) {
-      this.screen.grabKeys = false;
-    }
+  _showForm(rule) {
+    this._ruleNumberBeforeForm = this.selectedRule ? this.selectedRule.number : null;
+    this.formPopup = showFormPopup(
+      this.screen,
+      rule,
+      (values, existingRule) => this._handleFormSave(values, existingRule),
+      () => this._handleFormCancel()
+    );
+    this._modalActive = true;
   }
 
-  _handleSave() {
-    if (this.isProcessing) return;
+  _handleFormSave(values, existingRule) {
+    this._modalActive = false;
+    this.formPopup = null;
 
-    const values = getFormValues(this.rightPanel);
-    if (!values.port && !values.from) {
-      // Basic validation
-      return;
-    }
+    const isEdit = existingRule && existingRule.number > 0;
 
     const newRule = new Rule({
-      number: this.selectedRule ? this.selectedRule.number : 0,
+      number: isEdit ? existingRule.number : 0,
       action: values.action,
       port: values.port,
       protocol: values.protocol,
@@ -233,31 +239,130 @@ class RuleController {
     });
 
     this.showProcessing(true);
-    // Clear panel children
-    while (this.rightPanel.children.length > 0) {
-      const child = this.rightPanel.children[0];
-      child.detach();
-      if (child.destroy) child.destroy();
-    }
-    this.screen.render();
 
-    if (this.selectedRule) {
-      this.historyCtrl.addDeletedRule(this.selectedRule);
-      ufwExecutor.editRule(this.selectedRule, newRule);
+    let result;
+    if (isEdit) {
+      this.historyCtrl.addDeletedRule(existingRule);
+      result = ufwExecutor.editRule(existingRule, newRule);
     } else {
-      ufwExecutor.addRule(newRule);
+      result = ufwExecutor.addRule(newRule);
     }
 
-    this.loadRules();
+    if (result && !result.success) {
+      this.showProcessing(false);
+      const action = isEdit ? 'Edit' : 'Add';
+      const savedExistingRule = isEdit ? existingRule : null;
+      const savedValues = { ...values };
+      this._showErrorPopup(`${action} Rule Failed`, result.output || 'Unknown error', () => {
+        if (savedExistingRule) {
+          this._showForm(savedExistingRule);
+        } else {
+          const presetRule = new Rule({
+            number: 0,
+            action: savedValues.action,
+            port: savedValues.port,
+            protocol: savedValues.protocol,
+            from: savedValues.from,
+            to: savedValues.to,
+            comment: savedValues.comment,
+            direction: 'in',
+          });
+          this._showForm(presetRule);
+        }
+      });
+      return;
+    }
+
+    const restoreNumber = this._ruleNumberBeforeForm;
+    this._ruleNumberBeforeForm = null;
+
+    this.loadRules().then(() => {
+      if (restoreNumber != null) {
+        const idx = this.rules.findIndex(r => r.number === restoreNumber);
+        if (idx >= 0) {
+          this.selectRule(idx);
+        }
+      }
+    });
   }
 
-  _handleCancel() {
-    if (this.selectedRule) {
-      this.selectRule((this.list.selected || LIST_HEADER_OFFSET) - LIST_HEADER_OFFSET);
-    } else {
-      showViewMode(this.rightPanel, null, this.sshPort);
+  _handleFormCancel() {
+    this._modalActive = false;
+    this.formPopup = null;
+  }
+
+  _showErrorPopup(title, message, onDismiss) {
+    const overlay = blessed.box({
+      parent: this.screen,
+      top: 'center',
+      left: 'center',
+      width: '50%',
+      height: 12,
+      tags: true,
+      border: { type: 'line' },
+      style: {
+        border: { fg: '#e74c3c' },
+        bg: '#0d1b2a',
+      },
+    });
+
+    blessed.box({
+      parent: overlay,
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 3,
+      content: `{bold}{red-fg}${title}{/red-fg}{/bold}`,
+      tags: true,
+      align: 'center',
+      valign: 'middle',
+      style: { bg: '#1a5276' },
+    });
+
+    blessed.box({
+      parent: overlay,
+      top: 4,
+      left: 1,
+      right: 1,
+      bottom: 2,
+      content: message,
+      tags: true,
+      wrap: true,
+    });
+
+    blessed.box({
+      parent: overlay,
+      bottom: 0,
+      left: 1,
+      right: 1,
+      height: 1,
+      content: '{center}{yellow-fg}Press Enter or Esc to close{/yellow-fg}{/center}',
+      tags: true,
+    });
+
+    this._modalActive = true;
+    this.screen.render();
+
+    const dismiss = () => {
+      overlay.hide();
+      const idx = this.screen.children.indexOf(overlay);
+      if (idx !== -1) this.screen.children.splice(idx, 1);
+      overlay.destroy();
+      this._modalActive = false;
       this.screen.render();
-    }
+      if (onDismiss) onDismiss();
+    };
+
+    const onKey = (ch, key) => {
+      if (!this._modalActive) return;
+      if (!key) return;
+      if (key.name === 'enter' || key.name === 'return' || key.name === 'escape') {
+        this.screen.removeListener('keypress', onKey);
+        dismiss();
+      }
+    };
+
+    this.screen.on('keypress', onKey);
   }
 
   moveUp() {
@@ -274,32 +379,6 @@ class RuleController {
     if (current < this.rules.length - 1) {
       this.selectRule(current + 1);
     }
-  }
-
-  tabField() {
-    if (this.rightPanel._state !== 'edit' && this.rightPanel._state !== 'add') return;
-    this._endCurrentFieldRead();
-    const fieldCount = 6;
-    this.rightPanel._currentFieldIndex = (this.rightPanel._currentFieldIndex + 1) % fieldCount;
-    _highlightField(this.rightPanel, this.rightPanel._currentFieldIndex);
-    this._focusCurrentField();
-    this.screen.render();
-  }
-
-  tabFieldBack() {
-    if (this.rightPanel._state !== 'edit' && this.rightPanel._state !== 'add') return;
-    this._endCurrentFieldRead();
-    const fieldCount = 6;
-    this.rightPanel._currentFieldIndex = (this.rightPanel._currentFieldIndex - 1 + fieldCount) % fieldCount;
-    _highlightField(this.rightPanel, this.rightPanel._currentFieldIndex);
-    this._focusCurrentField();
-    this.screen.render();
-  }
-
-  cycleChoiceCurrent() {
-    if (this.rightPanel._state !== 'edit' && this.rightPanel._state !== 'add') return;
-    cycleChoice(this.rightPanel);
-    this.screen.render();
   }
 
   handleListSelect(index) {

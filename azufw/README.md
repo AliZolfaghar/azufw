@@ -31,14 +31,25 @@ sudo azufw
 | `↑/↓` | Navigate rules |
 | `Enter` | Edit selected rule |
 | `A` | Add new rule |
-| `D` | Delete selected rule |
+| `P` | Add preset rule (common services) |
+| `Delete` | Delete selected rule |
 | `R` | Refresh rule list |
 | `H` | View history |
 | `Esc` | Cancel/Go back |
-| `Tab` | Next form field |
-| `Space` | Cycle dropdown choices |
-| `Ctrl+S` | Save form |
+| `?` | Show help |
 | `Q` / `Ctrl+C` | Quit |
+
+### Form Keybindings (Add/Edit)
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `Shift+Tab` / `↑/↓` | Next/Previous field |
+| `←/→` / `Space` | Cycle choices (dropdown) |
+| `←/→` | Move cursor (text input) |
+| `Home/End` | Jump to start/end of text |
+| `Backspace/Delete` | Delete character |
+| `Ctrl+S` | Save rule |
+| `Esc` | Cancel |
 
 ## Requirements
 

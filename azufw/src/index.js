@@ -7,8 +7,10 @@ const { createScreen } = require('./ui/screen');
 const { createHeader } = require('./ui/header');
 const { createFooter } = require('./ui/footer');
 const { createLeftPanel, renderRuleList } = require('./ui/left-panel');
-const { createRightPanel, showViewMode, showEditMode, showHistoryMode, getFormValues, cycleChoice, _highlightField, selectHistoryItem, getSelectedHistoryIndex } = require('./ui/right-panel');
+const { createRightPanel, showViewMode, showHistoryMode, selectHistoryItem, getSelectedHistoryIndex } = require('./ui/right-panel');
 const { showWelcome } = require('./ui/welcome');
+const { showHelp } = require('./ui/help');
+const { showPresetPopup } = require('./ui/preset-popup');
 const ufwExecutor = require('./cli/ufw-executor');
 const RuleController = require('./controllers/rule-controller');
 const HistoryController = require('./controllers/history-controller');
@@ -60,8 +62,6 @@ async function main() {
     if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view') {
       ruleCtrl.moveUp();
-    } else if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
-      ruleCtrl.tabFieldBack();
     } else if (rightPanel._state === 'history') {
       const idx = getSelectedHistoryIndex(rightPanel);
       selectHistoryItem(rightPanel, idx - 1);
@@ -73,8 +73,6 @@ async function main() {
     if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view') {
       ruleCtrl.moveDown();
-    } else if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
-      ruleCtrl.tabField();
     } else if (rightPanel._state === 'history') {
       const idx = getSelectedHistoryIndex(rightPanel);
       selectHistoryItem(rightPanel, idx + 1);
@@ -101,9 +99,7 @@ async function main() {
 
   screen.key(['escape'], () => {
     if (ruleCtrl._modalActive) return;
-    if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
-      ruleCtrl._handleCancel();
-    } else if (rightPanel._state === 'history') {
+    if (rightPanel._state === 'history') {
       showViewMode(rightPanel, ruleCtrl.selectedRule, sshPort);
       screen.render();
     }
@@ -116,6 +112,16 @@ async function main() {
     }
   });
 
+  // P: preset rules popup
+  screen.key(['p'], () => {
+    if (ruleCtrl._modalActive) return;
+    if (rightPanel._state === 'view' || rightPanel._state === 'history') {
+      showPresetPopup(screen, ruleCtrl, (preset) => {
+        ruleCtrl.enterAddModeWithPreset(preset);
+      });
+    }
+  });
+
   screen.key(['r'], () => {
     if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view' || rightPanel._state === 'history') {
@@ -125,45 +131,7 @@ async function main() {
 
   screen.key(['q', 'C-c'], () => {
     if (ruleCtrl._modalActive) return;
-    if (rightPanel._state === 'edit' || rightPanel._state === 'add') return;
     return process.exit(0);
-  });
-
-  // Tab: move between form fields
-  screen.key(['tab'], () => {
-    if (ruleCtrl._modalActive) return;
-    if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
-      ruleCtrl.tabField();
-    }
-  });
-
-  // Shift+Tab: move between form fields backwards
-  screen.key(['S-tab'], () => {
-    if (ruleCtrl._modalActive) return;
-    if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
-      ruleCtrl.tabFieldBack();
-    }
-  });
-
-  // Space: cycle choices in dropdown fields
-  screen.key(['space'], () => {
-    if (ruleCtrl._modalActive) return;
-    if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
-      const fields = ['action', 'port', 'protocol', 'from', 'to', 'comment'];
-      const key = fields[rightPanel._currentFieldIndex];
-      const widget = rightPanel._formInputs[key];
-      if (widget && widget._choices) {
-        ruleCtrl.cycleChoiceCurrent();
-      }
-    }
-  });
-
-  // Ctrl+S: save form
-  screen.key(['C-s'], () => {
-    if (ruleCtrl._modalActive) return;
-    if (rightPanel._state === 'edit' || rightPanel._state === 'add') {
-      ruleCtrl._handleSave();
-    }
   });
 
   // H: show history
@@ -177,10 +145,23 @@ async function main() {
   });
 
   // Delete key: delete rule
-  screen.key(['delete', 'backspace'], () => {
+  screen.key(['delete'], () => {
     if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view' && ruleCtrl.selectedRule && !ruleCtrl.selectedRule.isCritical) {
       ruleCtrl.confirmDelete();
+    }
+  });
+
+  // ?: show help
+  screen.key(['?'], () => {
+    if (ruleCtrl._modalActive) return;
+    showHelp(screen, ruleCtrl);
+  });
+
+  // Form popup key handler: delegate to popup when active
+  screen.on('keypress', (ch, key) => {
+    if (ruleCtrl.formPopup && ruleCtrl.formPopup.active) {
+      ruleCtrl.formPopup.handleKey(ch, key);
     }
   });
 

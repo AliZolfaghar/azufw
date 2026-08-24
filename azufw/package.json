@@ -15,10 +15,20 @@
     "tui",
     "terminal",
     "linux",
-    "neo-blessed"
+    "neo-blessed",
+    "security",
+    "network"
   ],
-  "author": "",
+  "author": "Ali Zolfaghar <azolfaghar@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AliZolfaghar/azufw.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AliZolfaghar/azufw/issues"
+  },
+  "homepage": "https://github.com/AliZolfaghar/azufw#readme",
   "dependencies": {
     "neo-blessed": "^0.2.0"
   },

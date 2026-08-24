@@ -6,7 +6,7 @@ function createLeftPanel(screen) {
   const list = blessed.list({
     parent: screen,
     label: ' {bold}Rules{/bold} ',
-    top: 3,
+    top: 5,
     left: 0,
     width: '50%',
     bottom: 3,
@@ -28,8 +28,8 @@ function createLeftPanel(screen) {
 }
 
 function renderRuleList(list, rules, sshPort) {
-  const header = '{bold}{cyan-fg} #   Action   Port    Proto  From             To               Ver {/cyan-fg}{/bold}';
-  const divider = '{gray-fg}─── ──────── ─────── ────── ──────────────── ──────────────── ───{/gray-fg}';
+  const header = '{bold}{cyan-fg} #   Action   Port    Proto  From             To               Ver  Comment{/cyan-fg}{/bold}';
+  const divider = '{gray-fg}─── ──────── ─────── ────── ──────────────── ──────────────── ─── ──────────────{/gray-fg}';
 
   const items = rules.map(rule => {
     const isCritical = rule.port && parseInt(rule.port, 10) === sshPort;
@@ -55,8 +55,9 @@ function renderRuleList(list, rules, sshPort) {
     const from = (rule.from || '-').substring(0, 16).padEnd(16);
     const to = (rule.to || '-').substring(0, 16).padEnd(16);
     const ver = rule.getIpVersion().padEnd(3);
+    const comment = (rule.comment || '-').substring(0, 14).padEnd(14);
 
-    return `${colorPrefix}${num}  ${action} ${port} ${proto} ${from} ${to} ${ver}${colorSuffix}`;
+    return `${colorPrefix}${num}  ${action} ${port} ${proto} ${from} ${to} ${ver}  ${comment}${colorSuffix}`;
   });
 
   list.setItems([header, divider, ...items]);

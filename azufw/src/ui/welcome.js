@@ -8,8 +8,8 @@ function showWelcome(screen) {
       parent: screen,
       top: 'center',
       left: 'center',
-      width: '70%',
-      height: 20,
+      width: '55%',
+      height: 27,
       tags: true,
       border: { type: 'line' },
       style: {
@@ -23,15 +23,17 @@ function showWelcome(screen) {
       top: 0,
       left: 0,
       right: 0,
-      height: 1,
-      content: '{center}{bold}{yellow-fg}⚡ AZUFW v1.0.0{/yellow-fg}{/bold}{/center}',
+      height: 3,
+      content: '{bold}{yellow-fg}AZUFW v1.0.0{/yellow-fg}{/bold}',
       tags: true,
+      align: 'center',
+      valign: 'middle',
       style: { bg: '#1a5276' },
     });
 
     blessed.box({
       parent: overlay,
-      top: 1,
+      top: 4,
       left: 1,
       right: 1,
       height: 3,
@@ -41,7 +43,7 @@ function showWelcome(screen) {
 
     blessed.box({
       parent: overlay,
-      top: 4,
+      top: 7,
       left: 1,
       right: 1,
       height: 1,
@@ -51,7 +53,7 @@ function showWelcome(screen) {
 
     blessed.box({
       parent: overlay,
-      top: 5,
+      top: 8,
       left: 1,
       right: 1,
       height: 4,
@@ -61,11 +63,31 @@ function showWelcome(screen) {
 
     blessed.box({
       parent: overlay,
-      top: 9,
+      top: 12,
       left: 1,
       right: 1,
       height: 4,
       content: '{center}{yellow-fg}⚠ This tool modifies firewall rules.{/yellow-fg}\n{center}{yellow-fg}Root (sudo) privileges are required to apply changes.{/yellow-fg}\n{center}{gray-fg}Always ensure you have console access before modifying{/gray-fg}\n{center}{gray-fg}SSH-related rules to avoid locking yourself out.{/gray-fg}',
+      tags: true,
+    });
+
+    blessed.box({
+      parent: overlay,
+      top: 16,
+      left: 1,
+      right: 1,
+      height: 1,
+      content: '{center}{gray-fg}─────────────────────────────────────────{/gray-fg}{/center}',
+      tags: true,
+    });
+
+    blessed.box({
+      parent: overlay,
+      top: 17,
+      left: 1,
+      right: 1,
+      height: 3,
+      content: '{center}{cyan-fg}Author: Ali Zolfaghar{/cyan-fg}\n{center}{cyan-fg}Email: azolfaghar@gmail.com{/cyan-fg}\n{center}{cyan-fg}GitHub: https://github.com/AliZolfaghar/azufw{/cyan-fg}',
       tags: true,
     });
 
