@@ -238,6 +238,22 @@ class RuleController {
       direction: 'in',
     });
 
+    if (!isEdit) {
+      const duplicate = this.rules.find(r =>
+        r.action === newRule.action &&
+        r.port === newRule.port &&
+        r.protocol === newRule.protocol &&
+        r.from === newRule.from &&
+        r.to === newRule.to
+      );
+      if (duplicate) {
+        this._showErrorPopup('Rule Already Exists', 'This rule is already exists!', () => {
+          this._showForm(newRule);
+        });
+        return;
+      }
+    }
+
     this.showProcessing(true);
 
     let result;
