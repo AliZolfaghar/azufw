@@ -117,12 +117,12 @@ function getRuleTraffic(action, port, protocol) {
 
   const targetMap = { ALLOW: 'ACCEPT', DENY: 'DROP', REJECT: 'REJECT' };
   const target = targetMap[action.toUpperCase()] || action.toUpperCase();
+  const PROTO_NUM = { 6: 'tcp', 17: 'udp' };
 
   try {
     const out = execSync('iptables -L ufw-user-input -v -n -x', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-    let pkts = 0;
-    let bytes = 0;
-    let found = false;
+    let strictPkts = 0, strictBytes = 0, strictFound = false;
+    let loosePkts = 0, looseBytes = 0, looseFound = false;
 
     for (const line of out.split('\n')) {
       const f = line.trim().split(/\s+/);
@@ -131,17 +131,25 @@ function getRuleTraffic(action, port, protocol) {
       const b = parseInt(f[1], 10);
       if (isNaN(p) || isNaN(b)) continue;
       if (f[2] !== target) continue;
-      if (f[3] !== protocol.toLowerCase()) continue;
       if (port && !new RegExp(`dpts?:${port}(\\s|$)`).test(line)) continue;
-      pkts += p;
-      bytes += b;
-      found = true;
+
+      const protName = (PROTO_NUM[f[3]] || f[3]).toLowerCase();
+      const protoOk = !protocol || protName === String(protocol).toLowerCase();
+
+      if (protoOk) {
+        strictPkts += p; strictBytes += b; strictFound = true;
+      } else {
+        loosePkts += p; looseBytes += b; looseFound = true;
+      }
     }
 
-    if (!found) {
-      return { success: false, output: 'No matching iptables counter found for this rule' };
+    if (strictFound) {
+      return { success: true, pkts: strictPkts, bytes: strictBytes };
     }
-    return { success: true, pkts, bytes };
+    if (looseFound) {
+      return { success: true, pkts: loosePkts, bytes: looseBytes };
+    }
+    return { success: false, output: 'No matching iptables counter found for this rule' };
   } catch (e) {
     return { success: false, output: e.stderr || e.message };
   }
