@@ -15,7 +15,7 @@ function createHeader(screen) {
       bg: '#1a5276',
       bold: true,
     },
-    content: '{bold}{cyan-fg}⚡ AZUFW v1.0.0 — UFW Firewall Manager{/cyan-fg}{/bold}',
+    content: '{bold}{cyan-fg}AZUFW v1.0.0 — UFW Firewall Manager{/cyan-fg}{/bold}',
     align: 'center',
     valign: 'middle',
   });

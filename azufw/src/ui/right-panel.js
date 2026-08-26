@@ -13,7 +13,7 @@ function _destroyAllChildren(panel) {
 function createRightPanel(screen) {
   const panel = blessed.box({
     parent: screen,
-    label: ' {bold}Details{/bold} ',
+    label: ' {bold}Rule Details{/bold} ',
     top: 5,
     left: '50%',
     width: '50%',
@@ -33,11 +33,7 @@ function createRightPanel(screen) {
   return panel;
 }
 
-function showViewMode(panel, rule, sshPort) {
-  panel._state = 'view';
-  panel._currentRule = rule;
-  _destroyAllChildren(panel);
-
+function _showLogo(panel) {
   const logo = [
     '{center}{cyan-fg} █████╗ ███████╗██╗   ██╗███████╗██╗    ██╗{/cyan-fg}',
     '{center}{cyan-fg}██╔══██╗╚══███╔╝██║   ██║██╔════╝██║    ██║{/cyan-fg}',
@@ -58,6 +54,15 @@ function showViewMode(panel, rule, sshPort) {
     content: logo,
     tags: true,
   });
+}
+
+function showViewMode(panel, rule, sshPort) {
+  panel._state = 'view';
+  panel._currentRule = rule;
+  panel.setLabel(' {bold}Rule Details{/bold} ');
+  _destroyAllChildren(panel);
+
+  _showLogo(panel);
 
   if (!rule) {
     blessed.box({
@@ -66,40 +71,80 @@ function showViewMode(panel, rule, sshPort) {
       left: 1,
       right: 1,
       bottom: 10,
-      content: '{center}{gray-fg}Select a rule from the list to view details.{/gray-fg}{/center}',
+      content: '{center}{gray-fg}◇ No rule selected{/gray-fg}\n\n{center}{gray-fg}Select a rule from the list\nto view its details{/gray-fg}{/center}',
       tags: true,
+      align: 'center',
       valign: 'middle',
     });
     return;
   }
 
   const isCritical = rule.port && parseInt(rule.port, 10) === sshPort;
-  const actionColor = rule.action === 'ALLOW' ? 'green' : (rule.action === 'DENY' || rule.action === 'REJECT') ? 'red' : 'white';
-  const criticalTag = isCritical ? `  {yellow-fg}⚠ CRITICAL (SSH Port ${sshPort}){/yellow-fg}` : '';
 
-  const details = [
-    `{bold}{cyan-fg}Rule #${rule.number}{/cyan-fg}{/bold}${criticalTag}`,
-    '',
-    `  Action:    {${actionColor}-fg}${rule.action}{/${actionColor}-fg}`,
-    `  Port:      ${rule.port || '-'}`,
-    `  Protocol:  ${rule.protocol.toUpperCase()}`,
-    `  From:      ${rule.from}`,
-    `  To:        ${rule.to}`,
-    `  Direction: ${rule.direction.toUpperCase()}`,
-    `  Comment:   ${rule.comment || '-'}`,
-    '',
-    `{gray-fg}─────────────────────────────{/gray-fg}`,
-  ];
+  const badgeColor = rule.action === 'ALLOW'
+    ? '#1e8449'
+    : (rule.action === 'DENY' || rule.action === 'REJECT') ? '#943126' : '#5d6d7e';
 
   blessed.box({
     parent: panel,
     top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    content: `{center}{bold}{white-fg}RULE #${rule.number}{/white-fg}{/bold}{/center}`,
+    tags: true,
+  });
+
+  blessed.box({
+    parent: panel,
+    top: 1,
+    left: 'center',
+    width: 18,
+    height: 3,
+    content: `{center}{bold}${rule.action}{/bold}{/center}`,
+    tags: true,
+    align: 'center',
+    valign: 'middle',
+    border: { type: 'line' },
+    style: {
+      bg: badgeColor,
+      fg: '#ffffff',
+      bold: true,
+      border: { fg: badgeColor },
+    },
+  });
+
+  const section = (title) => ` {bold}{cyan-fg}▸ ${title}{/cyan-fg}{/bold} {gray-fg}─────────────────────────{/gray-fg}`;
+  const field = (label, value) => `   {gray-fg}${label.padEnd(12)}{/gray-fg}  ${value}`;
+
+  const lines = [
+    section('CONNECTION'),
+    field('Direction', rule.direction === 'out' ? '{cyan-fg}Outgoing →{/cyan-fg}' : '{cyan-fg}← Incoming{/cyan-fg}'),
+    field('Port', `{bold}{white-fg}${rule.port || 'any'}{/white-fg}{/bold} {gray-fg}/ ${rule.protocol.toUpperCase()}{/gray-fg}`),
+    '',
+    section('ADDRESSING'),
+    field('Source', rule.from || 'any'),
+    field('Destination', rule.to || 'any'),
+    field('IP Version', `v${rule.getIpVersion()}`),
+    '',
+    section('DESCRIPTION'),
+    field('', rule.comment ? `{white-fg}${rule.comment}{/white-fg}` : '{gray-fg}(none){/gray-fg}'),
+  ];
+
+  if (isCritical) {
+    lines.push('');
+    lines.push(` {yellow-fg}{bold}⚠ CRITICAL{/bold} SSH port ${sshPort} — deletion blocked{/yellow-fg}`);
+  }
+
+  blessed.box({
+    parent: panel,
+    top: 4,
     left: 1,
     right: 1,
     bottom: 10,
-    content: details.join('\n'),
+    content: lines.join('\n'),
     tags: true,
-    wrap: true,
+    wrap: false,
   });
 
   panel._isCritical = isCritical;
@@ -109,6 +154,7 @@ function showHistoryMode(panel, entries) {
   panel._state = 'history';
   panel._historyEntries = entries;
   panel._historySelectedIndex = 0;
+  panel.setLabel(' {bold}Deleted Rules History{/bold} ');
   _destroyAllChildren(panel);
   panel._historyItems = [];
 

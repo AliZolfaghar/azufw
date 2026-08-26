@@ -89,11 +89,11 @@ class RuleController {
       left: 0,
       right: 0,
       height: 3,
-      content: '{bold}{red-fg}Confirm Delete{/red-fg}{/bold}',
+      content: '{bold}{white-fg}⚠  Confirm Delete  ⚠{/white-fg}{/bold}',
       tags: true,
       align: 'center',
       valign: 'middle',
-      style: { bg: '#1a5276' },
+      style: { bg: '#c0392b' },
     });
 
     require('neo-blessed').box({
