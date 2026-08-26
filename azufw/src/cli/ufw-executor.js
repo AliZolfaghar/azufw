@@ -106,4 +106,45 @@ function getUfwVerbose() {
   }
 }
 
-module.exports = { listRules, addRule, deleteRule, editRule, getUfwVerbose };
+function getRuleTraffic(action, port, protocol) {
+  if (isMockMode) {
+    const t = Math.floor(Date.now() / 1000);
+    const seed = (parseInt(port, 10) || 80) % 97 || 7;
+    const pkts = Math.floor(50000 / seed + t * 37 * (seed % 13 + 1));
+    const bytes = pkts * (800 + seed * 40);
+    return { success: true, pkts, bytes };
+  }
+
+  const targetMap = { ALLOW: 'ACCEPT', DENY: 'DROP', REJECT: 'REJECT' };
+  const target = targetMap[action.toUpperCase()] || action.toUpperCase();
+
+  try {
+    const out = execSync('iptables -L ufw-user-input -v -n -x', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    let pkts = 0;
+    let bytes = 0;
+    let found = false;
+
+    for (const line of out.split('\n')) {
+      const f = line.trim().split(/\s+/);
+      if (f.length < 10) continue;
+      const p = parseInt(f[0], 10);
+      const b = parseInt(f[1], 10);
+      if (isNaN(p) || isNaN(b)) continue;
+      if (f[2] !== target) continue;
+      if (f[3] !== protocol.toLowerCase()) continue;
+      if (port && !new RegExp(`dpts?:${port}(\\s|$)`).test(line)) continue;
+      pkts += p;
+      bytes += b;
+      found = true;
+    }
+
+    if (!found) {
+      return { success: false, output: 'No matching iptables counter found for this rule' };
+    }
+    return { success: true, pkts, bytes };
+  } catch (e) {
+    return { success: false, output: e.stderr || e.message };
+  }
+}
+
+module.exports = { listRules, addRule, deleteRule, editRule, getUfwVerbose, getRuleTraffic };

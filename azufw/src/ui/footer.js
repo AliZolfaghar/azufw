@@ -22,7 +22,7 @@ function createFooter(screen) {
       footer.setContent(` {center}{yellow-fg}⏳ Processing...{/yellow-fg}{/center}`);
     } else {
       const statusColor = status === 'active' ? '{green-fg}● Active{/green-fg}' : '{red-fg}● Inactive{/red-fg}';
-      footer.setContent(` Status: ${statusColor}  │  A:Add  P:Presets  Enter:Edit  Del:Delete  R:Refresh  H:History  ?:Help  Q:Quit  │  Form: Tab:Next  Space/←→:Change  ←→:Cursor  Home/End:Start/End  Ctrl+S:Save  Esc:Cancel`);
+      footer.setContent(` Status: ${statusColor}  │  A:Add  P:Presets  Enter:Edit  I:Traffic  Del:Delete  R:Refresh  H:History  ?:Help  Q:Quit  │  Form: Tab:Next  Space/←→:Change  ←→:Cursor  Home/End:Start/End  Ctrl+S:Save  Esc:Cancel`);
     }
     screen.render();
   };

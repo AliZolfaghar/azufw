@@ -128,6 +128,16 @@ Available presets:
 | RDP | ALLOW | 3389 | TCP |
 | Custom | — | empty | — |
 
+### Viewing Live Traffic
+
+Select a rule and press **I** to open a live traffic popup for that rule:
+
+- **Totals** — packets and bytes matched by the rule since boot (read from iptables counters)
+- **Live rate** — packets/s and bandwidth/s, refreshed every second
+- Close with **Esc** or **Q**
+
+> Requires root (already running under `sudo`) and iptables; counters are read from the `ufw-user-input` chain.
+
 ### Editing a Rule
 
 Select a rule and press **Enter**. The form opens with current values; modify and press **Ctrl+S**. After saving, selection stays on the edited rule.
@@ -164,6 +174,7 @@ In-app help is always available via **?**.
 | `Enter` | Edit selected rule • Restore history entry |
 | `A` | Add new rule |
 | `P` | Open preset rules popup |
+| `I` | Live traffic info for selected rule |
 | `Delete` | Delete selected rule (with confirmation) |
 | `R` | Refresh rule list |
 | `H` | Toggle deleted-rules history |

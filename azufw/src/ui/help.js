@@ -48,6 +48,7 @@ function showHelp(screen, ruleCtrl) {
       '   {yellow-fg}Enter{/yellow-fg}       Edit selected rule',
       '   {yellow-fg}A{/yellow-fg}           Add new rule',
       '   {yellow-fg}P{/yellow-fg}           Add preset rule (common services)',
+      '   {yellow-fg}I{/yellow-fg}           Live traffic for selected rule',
       '   {yellow-fg}Delete{/yellow-fg}     Delete rule (with confirmation)',
       '   {yellow-fg}R{/yellow-fg}           Refresh rules',
       '',

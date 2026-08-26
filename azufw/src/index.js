@@ -11,6 +11,7 @@ const { createRightPanel, showViewMode, showHistoryMode, selectHistoryItem, getS
 const { showWelcome } = require('./ui/welcome');
 const { showHelp } = require('./ui/help');
 const { showPresetPopup } = require('./ui/preset-popup');
+const { showStatsPopup } = require('./ui/stats-popup');
 const ufwExecutor = require('./cli/ufw-executor');
 const RuleController = require('./controllers/rule-controller');
 const HistoryController = require('./controllers/history-controller');
@@ -149,6 +150,14 @@ async function main() {
     if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view' && ruleCtrl.selectedRule && !ruleCtrl.selectedRule.isCritical) {
       ruleCtrl.confirmDelete();
+    }
+  });
+
+  // I: live traffic info for selected rule
+  screen.key(['i'], () => {
+    if (ruleCtrl._modalActive) return;
+    if (rightPanel._state === 'view' && ruleCtrl.selectedRule) {
+      showStatsPopup(screen, ruleCtrl, ruleCtrl.selectedRule);
     }
   });
 
