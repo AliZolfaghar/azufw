@@ -1,7 +1,28 @@
 'use strict';
 
+/**
+ * ============================================================================
+ * RIGHT PANEL  —  right half of the screen
+ * ----------------------------------------------------------------------------
+ * The right panel has TWO operating modes, tracked by `panel._state`:
+ *
+ *   'view'    (default)  → detailed read-only view of whatever rule is selected
+ *                          in the left panel, plus the AZUFW logo at the bottom.
+ *   'history'             → list of recently deleted rules with Restore + navigation.
+ *
+ * The panel's label (top border) is swapped by setLabel() depending on the mode.
+ * Content is destroyed and rebuilt per selection because neo-blessed boxes are static;
+ * rebuilding is simpler than trying to diff/update individual lines.
+ * ============================================================================
+ */
+
 const blessed = require('neo-blessed');
 
+/**
+ * Detach and destroy every child widget on the panel.
+ * Used before every repaint so stale boxes don't stack up.
+ * @param {object} panel - the blessed element whose children to wipe
+ */
 function _destroyAllChildren(panel) {
   while (panel.children.length > 0) {
     const child = panel.children[0];
@@ -10,14 +31,20 @@ function _destroyAllChildren(panel) {
   }
 }
 
+/**
+ * Creates the right panel and anchors it to the right half of the screen.
+ * Starts in 'view' mode with no rule selected.
+ * @param {object} screen - the blessed screen
+ * @returns {object} the new right-panel element
+ */
 function createRightPanel(screen) {
   const panel = blessed.box({
     parent: screen,
     label: ' {bold}Rule Details{/bold} ',
-    top: 5,
-    left: '50%',
+    top: 5,             // below the 5-row header
+    left: '50%',        // right half of the screen
     width: '50%',
-    bottom: 3,
+    bottom: 3,          // above the 3-row footer
     border: { type: 'line' },
     style: {
       border: { fg: '#5dade2' },
@@ -27,12 +54,18 @@ function createRightPanel(screen) {
     keys: false,
   });
 
+  // Public-ish state read by src/index.js to decide which keyboard shortcuts apply.
   panel._state = 'view';
   panel._currentRule = null;
 
   return panel;
 }
 
+/**
+ * Renders the AZUFW ASCII-art logo pinned to the bottom of the panel.
+ * Always shown in 'view' mode (below the rule details).
+ * @param {object} panel - right panel to attach the logo to
+ */
 function _showLogo(panel) {
   const logo = [
     '{center}{cyan-fg} █████╗ ███████╗██╗   ██╗███████╗██╗    ██╗{/cyan-fg}',
@@ -56,6 +89,16 @@ function _showLogo(panel) {
   });
 }
 
+/**
+ * Switches the panel into VIEW mode: shows the selected rule's details above
+ * the AZUFW logo. Called on every selection change and after rules reload.
+ *
+ * Purely visual — no UFW interaction happens here.
+ *
+ * @param {object} panel   - right panel element
+ * @param {Rule|null} rule - the currently selected rule (or null if none)
+ * @param {number} sshPort  - the local SSH port, used to flag critical rules
+ */
 function showViewMode(panel, rule, sshPort) {
   panel._state = 'view';
   panel._currentRule = rule;
@@ -85,6 +128,7 @@ function showViewMode(panel, rule, sshPort) {
     ? '#1e8449'
     : (rule.action === 'DENY' || rule.action === 'REJECT') ? '#943126' : '#5d6d7e';
 
+  // Rule number line at the very top of the view area.
   blessed.box({
     parent: panel,
     top: 0,
@@ -95,6 +139,7 @@ function showViewMode(panel, rule, sshPort) {
     tags: true,
   });
 
+  // Bordered action badge (green ALLOW / red DENY / gray other).
   blessed.box({
     parent: panel,
     top: 1,
@@ -114,6 +159,7 @@ function showViewMode(panel, rule, sshPort) {
     },
   });
 
+  // --- Detail body: three titled sections, one line helper wrappers ------------
   const section = (title) => ` {bold}{cyan-fg}▸ ${title}{/cyan-fg}{/bold} {gray-fg}─────────────────────────{/gray-fg}`;
   const field = (label, value) => `   {gray-fg}${label.padEnd(12)}{/gray-fg}  ${value}`;
 
@@ -131,6 +177,7 @@ function showViewMode(panel, rule, sshPort) {
     field('', rule.comment ? `{white-fg}${rule.comment}{/white-fg}` : '{gray-fg}(none){/gray-fg}'),
   ];
 
+  // Warn prominently when this rule guards the SSH port (can't be deleted).
   if (isCritical) {
     lines.push('');
     lines.push(` {yellow-fg}{bold}⚠ CRITICAL{/bold} SSH port ${sshPort} — deletion blocked{/yellow-fg}`);
@@ -138,18 +185,26 @@ function showViewMode(panel, rule, sshPort) {
 
   blessed.box({
     parent: panel,
-    top: 4,
+    top: 4,       // below the RULE # header + badge
     left: 1,
     right: 1,
-    bottom: 10,
+    bottom: 10,    // above the logo
     content: lines.join('\n'),
     tags: true,
     wrap: false,
   });
 
+  // Stash the flag so src/index.js can block the Delete key for this rule.
   panel._isCritical = isCritical;
 }
 
+/**
+ * Switches the panel into HISTORY mode: displays the deleted-rules history list,
+ * highlights a selected entry, shows a Restore button, and prepares state needed
+ * by src/index.js (arrow keys, Restore via Enter).
+ * @param {object} panel   - right panel to rebuild
+ * @param {object[]} entries - history entries from HistoryController.getEntries()
+ */
 function showHistoryMode(panel, entries) {
   panel._state = 'history';
   panel._historyEntries = entries;
@@ -158,6 +213,7 @@ function showHistoryMode(panel, entries) {
   _destroyAllChildren(panel);
   panel._historyItems = [];
 
+  // Small section header inside the panel body.
   blessed.box({
     parent: panel,
     top: 0,
@@ -181,6 +237,7 @@ function showHistoryMode(panel, entries) {
     return;
   }
 
+  // One 2-row-tall item per history entry, index 0 highlighted.
   entries.forEach((entry, idx) => {
     const yPos = 2 + idx * 2;
     const rule = entry.rule;
@@ -213,6 +270,12 @@ function showHistoryMode(panel, entries) {
   });
 }
 
+/**
+ * Moves the history selection highlight to `index`, clamped to valid bounds.
+ * The user clicks ↑/↓ in history mode, and index.js calls this.
+ * @param {object} panel - right panel in 'history' state
+ * @param {number} index  - desired 0-based item index
+ */
 function selectHistoryItem(panel, index) {
   if (!panel._historyItems || panel._historyItems.length === 0) return;
   const max = panel._historyItems.length - 1;
@@ -220,11 +283,17 @@ function selectHistoryItem(panel, index) {
   if (index > max) index = max;
   panel._historySelectedIndex = index;
 
+  // Re-stripe: selected is one color, others alternate.
   panel._historyItems.forEach((item, i) => {
     item.style.bg = i === index ? '#1a5276' : (i % 2 === 0 ? '#1a1a2e' : '#16213e');
   });
 }
 
+/**
+ * Returns the currently selected history index (0-based).
+ * @param {object} panel - right panel in 'history' state
+ * @returns {number}
+ */
 function getSelectedHistoryIndex(panel) {
   return panel._historySelectedIndex || 0;
 }

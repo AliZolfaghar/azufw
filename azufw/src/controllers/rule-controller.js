@@ -1,5 +1,20 @@
 'use strict';
 
+/**
+ * ============================================================================
+ * RULE CONTROLLER  —  central business logic for the main rule screen
+ * ----------------------------------------------------------------------------
+ * Bridges the UI widgets (left list, right panel, header, footer) and the
+ * firewall executor (cli/ufw-executor). Owns:
+ *   - loading + selecting rules
+ *   - the Add/Edit form lifecycle (mode, save, duplicate checks)
+ *   - Delete confirmation and deletion
+ *   - error popups that can reopen the form with state preserved
+ *   - tracking `_modalActive`, which suppresses ALL global key handlers while a
+ *     popup (help/preset/error/delete/stats) is showing.
+ * ============================================================================
+ */
+
 const blessed = require('neo-blessed');
 const ufwExecutor = require('../cli/ufw-executor');
 const Rule = require('../models/Rule');
@@ -7,9 +22,28 @@ const { renderRuleList } = require('../ui/left-panel');
 const { showViewMode } = require('../ui/right-panel');
 const { showFormPopup } = require('../ui/form-popup');
 
-const LIST_HEADER_OFFSET = 2; // header + divider rows in the rule list
+/**
+ * The left list always holds [header, divider, rule0, rule1, ...].
+ * So rule index N lives at list row (N + LIST_HEADER_OFFSET). This constant
+ * matches the one in ui/left-panel.js and keeps both files in sync.
+ * @type {number}
+ */
+const LIST_HEADER_OFFSET = 2;
 
+/**
+ * Core controller. Instantiated once in src/index.js.
+ */
 class RuleController {
+  /**
+   * @param {object} listPanel    - blessed list (left panel)
+   * @param {object} rightPanel   - blessed box (right panel)
+   * @param {object} headerPanel  - blessed box (top title bar)
+   * @param {object} footerPanel  - blessed box (bottom bar)
+   * @param {object} screen       - blessed screen
+   * @param {object} historyCtrl - HistoryController (persists deleted rules)
+   * @param {number} sshPort     - detected SSH port
+   * @param {string} ufwStatus   - 'active' | 'inactive'
+   */
   constructor(listPanel, rightPanel, headerPanel, footerPanel, screen, historyCtrl, sshPort, ufwStatus) {
     this.list = listPanel;
     this.rightPanel = rightPanel;
@@ -22,14 +56,18 @@ class RuleController {
     this.rules = [];
     this.selectedRule = null;
     this.isProcessing = false;
-    this._modalActive = false;
-    this.formPopup = null;
+    this._modalActive = false;    // true while ANY popup is showing
+    this.formPopup = null;        // the currently-open Add/Edit popup (or null)
   }
 
+  /**
+   * Fetches all rules from UFW, repaints the list, restores selection.
+   * Called at startup, after refresh (R), and after every mutation.
+   */
   async loadRules() {
     this.showProcessing(true);
     this.rules = ufwExecutor.listRules();
-    // Mark critical rules
+    // Flag rules that guard the SSH port → they can't be deleted.
     this.rules.forEach(rule => {
       if (rule.port && parseInt(rule.port, 10) === this.sshPort) {
         rule.isCritical = true;
@@ -49,6 +87,12 @@ class RuleController {
     }
   }
 
+  /**
+   * Selects rule at `index`, updating both the list highlight and the right panel.
+   * @param {number} index       - 0-based rule index
+   * @param {boolean} [skipListSelect=false] - true when selection came from clicking
+   *                                        the list itself (avoid double-select)
+   */
   selectRule(index, skipListSelect) {
     if (index < 0 || index >= this.rules.length) return;
     if (!skipListSelect) this.list.select(index + LIST_HEADER_OFFSET);
@@ -57,11 +101,17 @@ class RuleController {
     this.screen.render();
   }
 
+  /** Toggles the "Processing…" state on the footer. */
   showProcessing(processing) {
     this.isProcessing = processing;
     this.footer.updateContent(this.ufwStatus, processing);
   }
 
+  /**
+   * Opens the Delete confirmation popup for the currently selected rule.
+   * Confirmed with Y, cancelled with N, Esc, or Q. Critical (SSH) rules are
+   * blocked at a higher level (in index.js), so they never reach here.
+   */
   confirmDelete() {
     if (!this.selectedRule) return;
     if (this.isProcessing) return;
@@ -83,6 +133,7 @@ class RuleController {
       },
     });
 
+    // Danger-striped title bar.
     require('neo-blessed').box({
       parent: overlay,
       top: 0,
@@ -96,6 +147,7 @@ class RuleController {
       style: { bg: '#c0392b' },
     });
 
+    // Rule summary being deleted.
     require('neo-blessed').box({
       parent: overlay,
       top: 3,
@@ -112,6 +164,7 @@ class RuleController {
       tags: true,
     });
 
+    // Prompt line.
     require('neo-blessed').box({
       parent: overlay,
       top: 9,
@@ -124,9 +177,11 @@ class RuleController {
 
     this._modalOverlay = overlay;
     this.screen.render();
-
     this._modalActive = true;
 
+    /**
+     * Closes the popup without deleting.
+     */
     const dismiss = () => {
       this._modalActive = false;
       if (this._modalOverlay) {
@@ -139,6 +194,7 @@ class RuleController {
       this.screen.render();
     };
 
+    // Individual key handlers for Y / N.
     const onKey = (ch, key) => {
       if (!this._modalActive) return;
       if (!key) return;
@@ -152,6 +208,7 @@ class RuleController {
       }
     };
 
+    // Remember to detach our own listener so it doesn't fire forever.
     const cleanup = () => {
       this.screen.removeListener('keypress', onKey);
     };
@@ -159,6 +216,10 @@ class RuleController {
     this.screen.on('keypress', onKey);
   }
 
+  /**
+   * Actually deletes the selected UFW rule, records it in history, reloads.
+   * On failure, shows an error popup that restores the right panel.
+   */
   async deleteSelectedRule() {
     if (!this.selectedRule) return;
     if (this.isProcessing) return;
@@ -167,6 +228,7 @@ class RuleController {
     const ruleIndex = this.rules.findIndex(r => r.number === ruleToDelete.number);
 
     this.showProcessing(true);
+    // Wipe the right panel while the deletion is in flight (avoids stale view).
     while (this.rightPanel.children.length > 0) {
       const child = this.rightPanel.children[0];
       child.detach();
@@ -187,15 +249,22 @@ class RuleController {
     }
   }
 
+  /** Opens the Edit form for the selected rule. */
   enterEditMode() {
     if (!this.selectedRule) return;
     this._showForm(this.selectedRule);
   }
 
+  /** Opens the Add form with empty (default) values. */
   enterAddMode() {
     this._showForm(null);
   }
 
+  /**
+   * Like enterAddMode but pre-fills the form with a preset's values.
+   * Preset rules carry number=0 so the form treats them as Adds.
+   * @param {object} preset - one entry from src/ui/preset-popup.js PRESETS
+   */
   enterAddModeWithPreset(preset) {
     const presetRule = new Rule({
       number: 0,
@@ -210,7 +279,12 @@ class RuleController {
     this._showForm(presetRule);
   }
 
+  /**
+   * Shows the Add/Edit form popup.
+   * @param {Rule|null} rule - existing rule (Edit) or null/new rule#0 (Add)
+   */
   _showForm(rule) {
+    // Remember which number is selected so we can restore focus after a save reloads.
     this._ruleNumberBeforeForm = this.selectedRule ? this.selectedRule.number : null;
     this.formPopup = showFormPopup(
       this.screen,
@@ -221,10 +295,18 @@ class RuleController {
     this._modalActive = true;
   }
 
+  /**
+   * Save handler called from the form's Ctrl+S.
+   * Builds the new Rule, detects duplicates (Add only), executes ufw,
+   * restores selection, and on failure reopens the form with prior state.
+   * @param {object} values       - {action, port, protocol, from, to, comment}
+   * @param {Rule|null} existingRule - the rule being edited, or null for Add
+   */
   _handleFormSave(values, existingRule) {
     this._modalActive = false;
     this.formPopup = null;
 
+    // number>0 ⟺ an existing UFW rule → Edit, else Add.
     const isEdit = existingRule && existingRule.number > 0;
 
     const newRule = new Rule({
@@ -238,6 +320,7 @@ class RuleController {
       direction: 'in',
     });
 
+    // Prevent duplicate Adds (exact same action/port/proto/from/to).
     if (!isEdit) {
       const duplicate = this.rules.find(r =>
         r.action === newRule.action &&
@@ -248,7 +331,7 @@ class RuleController {
       );
       if (duplicate) {
         this._showErrorPopup('Rule Already Exists', 'This rule is already exists!', () => {
-          this._showForm(newRule);
+          this._showForm(newRule); // reopen with what they typed
         });
         return;
       }
@@ -256,6 +339,7 @@ class RuleController {
 
     this.showProcessing(true);
 
+    // On Edit we first archive the old rule so we can restore it after a failure.
     let result;
     if (isEdit) {
       this.historyCtrl.addDeletedRule(existingRule);
@@ -264,6 +348,7 @@ class RuleController {
       result = ufwExecutor.addRule(newRule);
     }
 
+    // Error → show popup; on dismiss reopen form with saved state.
     if (result && !result.success) {
       this.showProcessing(false);
       const action = isEdit ? 'Edit' : 'Add';
@@ -302,11 +387,18 @@ class RuleController {
     });
   }
 
+  /** Cancels a form — just releases the modal lock. */
   _handleFormCancel() {
     this._modalActive = false;
     this.formPopup = null;
   }
 
+  /**
+   * Displays a modal error popup with a single Dismiss (Enter/Esc).
+   * @param {string} title    - short error heading
+   * @param {string} message  - body text
+   * @param {function()=} onDismiss - called once popup closes (e.g. reopen form)
+   */
   _showErrorPopup(title, message, onDismiss) {
     const overlay = blessed.box({
       parent: this.screen,
@@ -322,6 +414,7 @@ class RuleController {
       },
     });
 
+    // Title bar
     blessed.box({
       parent: overlay,
       top: 0,
@@ -335,6 +428,7 @@ class RuleController {
       style: { bg: '#1a5276' },
     });
 
+    // Message body
     blessed.box({
       parent: overlay,
       top: 4,
@@ -346,6 +440,7 @@ class RuleController {
       wrap: true,
     });
 
+    // Footer hint
     blessed.box({
       parent: overlay,
       bottom: 0,
@@ -359,6 +454,9 @@ class RuleController {
     this._modalActive = true;
     this.screen.render();
 
+    /**
+     * Closes popup and runs onDismiss AFTER releasing the lock.
+     */
     const dismiss = () => {
       overlay.hide();
       const idx = this.screen.children.indexOf(overlay);
@@ -381,6 +479,7 @@ class RuleController {
     this.screen.on('keypress', onKey);
   }
 
+  /** Moves selection UP in the rule list. */
   moveUp() {
     if (this.rules.length === 0) return;
     const current = (this.list.selected || LIST_HEADER_OFFSET) - LIST_HEADER_OFFSET;
@@ -389,6 +488,7 @@ class RuleController {
     }
   }
 
+  /** Moves selection DOWN in the rule list. */
   moveDown() {
     if (this.rules.length === 0) return;
     const current = (this.list.selected || LIST_HEADER_OFFSET) - LIST_HEADER_OFFSET;
@@ -397,6 +497,11 @@ class RuleController {
     }
   }
 
+  /**
+   * Called when the user clicks a rule row directly in the list.
+   * Adjusts for the header/divider offset before delegating.
+   * @param {number} index - TRUE list row index (includes offset)
+   */
   handleListSelect(index) {
     const ruleIndex = index - LIST_HEADER_OFFSET;
     if (ruleIndex >= 0 && ruleIndex < this.rules.length) {

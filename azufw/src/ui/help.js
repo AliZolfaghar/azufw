@@ -1,7 +1,23 @@
 'use strict';
 
+/**
+ * ============================================================================
+ * HELP POPUP  —  in-app keyboard reference
+ * ----------------------------------------------------------------------------
+ * Opened with `?`. A static, browsable list of every shortcut, grouped by topic.
+ * Any key closes it (implemented as a screen-level keypress listener we remove in
+ * the Dismiss closure below).
+ * ============================================================================
+ */
+
 const blessed = require('neo-blessed');
 
+/**
+ * Shows the help popup centered on the screen and blocks the rest of the app
+ * (via `ruleCtrl._modalActive`) until a key is pressed.
+ * @param {object} screen   - the blessed screen
+ * @param {object} ruleCtrl - the RuleController (to set _modalActive)
+ */
 function showHelp(screen, ruleCtrl) {
   const overlay = blessed.box({
     parent: screen,
@@ -17,6 +33,7 @@ function showHelp(screen, ruleCtrl) {
     },
   });
 
+  // Title bar
   blessed.box({
     parent: overlay,
     top: 0,
@@ -30,6 +47,7 @@ function showHelp(screen, ruleCtrl) {
     style: { bg: '#1a5276' },
   });
 
+  // Shortcut listing, grouped.
   blessed.box({
     parent: overlay,
     top: 3,
@@ -65,6 +83,7 @@ function showHelp(screen, ruleCtrl) {
     wrap: true,
   });
 
+  // Static hint footer.
   blessed.box({
     parent: overlay,
     bottom: 0,
@@ -75,9 +94,13 @@ function showHelp(screen, ruleCtrl) {
     tags: true,
   });
 
+  // Help popup is modal — suppress all other rebindings while open.
   ruleCtrl._modalActive = true;
   screen.render();
 
+  /**
+   * Closes the popup and releases modal lock.
+   */
   const dismiss = () => {
     ruleCtrl._modalActive = false;
     overlay.hide();
@@ -87,6 +110,7 @@ function showHelp(screen, ruleCtrl) {
     screen.render();
   };
 
+  // ANY key closes the popup.
   const onKey = () => {
     screen.removeListener('keypress', onKey);
     dismiss();

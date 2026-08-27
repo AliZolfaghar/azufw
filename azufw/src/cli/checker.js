@@ -1,9 +1,27 @@
 'use strict';
 
+/**
+ * ============================================================================
+ * CHECKER  —  startup validation + one-shot bootstrap of UFW
+ * ----------------------------------------------------------------------------
+ * Runs (in this order) at app launch:
+ *   1. checkSudo()      → exits immediately if we're not root on Linux
+ *   2. bootstrapUfw()   → installs UFW if missing, enables it if inactive,
+ *                          and returns the current status string.
+ *
+ * Mock mode short-circuits everything (Linux-specific tools don't exist).
+ * ============================================================================
+ */
+
 const { execSync } = require('child_process');
 const { isMockMode } = require('../utils/platform');
 const { detectSshPort } = require('../utils/ssh-detector');
 
+/**
+ * Verifies the app is running as root (required by UFW).
+ * Exits the process on failure. Always returns true otherwise.
+ * @returns {boolean}
+ */
 function checkSudo() {
   if (isMockMode) return true;
 
@@ -14,6 +32,9 @@ function checkSudo() {
   return true;
 }
 
+/**
+ * @returns {boolean} whether the `ufw` binary exists on PATH
+ */
 function isUfwInstalled() {
   if (isMockMode) return true;
   try {
@@ -24,6 +45,10 @@ function isUfwInstalled() {
   }
 }
 
+/**
+ * One-shot auto-install attempt for debian/ubuntu.
+ * @returns {boolean}
+ */
 function installUfw() {
   if (isMockMode) return true;
   console.log('[*] Installing UFW...');
@@ -36,6 +61,9 @@ function installUfw() {
   }
 }
 
+/**
+ * @returns {'active'|'inactive'|'unknown'}
+ */
 function getUfwStatus() {
   if (isMockMode) return 'active';
   try {
@@ -48,6 +76,10 @@ function getUfwStatus() {
   }
 }
 
+/**
+ * Turns UFW ON (required for any rule to take effect).
+ * @returns {boolean}
+ */
 function enableUfw() {
   if (isMockMode) return true;
   console.log('[*] Enabling UFW...');
@@ -60,6 +92,10 @@ function enableUfw() {
   }
 }
 
+/**
+ * Full start gate used by src/index.js.
+ * @returns {Promise<{status: 'active'|'inactive'|'unknown', sshPort: number}>}
+ */
 async function bootstrapUfw() {
   if (isMockMode) {
     return { status: 'active', sshPort: detectSshPort() };
