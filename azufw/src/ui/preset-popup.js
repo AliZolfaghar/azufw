@@ -1,7 +1,26 @@
 'use strict';
 
+/**
+ * ============================================================================
+ * PRESET POPUP  —  quick Add from a list of common services
+ * ----------------------------------------------------------------------------
+ * Opened via the `P` key. Lists every PRESET grouped under a static header and
+ * divider. The user picks one with Enter; the selection is passed to the caller
+ * (controllers/rule-controller#enterAddModeWithPreset) which fills the Add form.
+ *
+ * On selection (real or Esc) the overlay is destroyed and `_modalActive` is
+ * cleared so the rest of the app resumes control.
+ * ============================================================================
+ */
+
 const blessed = require('neo-blessed');
 
+/**
+ * The preset catalogue shown in the list. All presets are ALLOW rules;
+ * 'Custom' opens an EMPTY Add form, effectively just a shortcut to A.
+ * @type {Array<{name:string, action:string, port:string, protocol:string,
+ *               from:string, to:string, comment:string}>}
+ */
 const PRESETS = [
   { name: 'SSH', action: 'ALLOW', port: '22', protocol: 'tcp', from: 'any', to: 'any', comment: 'SSH access' },
   { name: 'HTTP', action: 'ALLOW', port: '80', protocol: 'tcp', from: 'any', to: 'any', comment: 'Web server' },
@@ -22,7 +41,17 @@ const PRESETS = [
   { name: 'Custom', action: 'ALLOW', port: '', protocol: 'tcp', from: 'any', to: 'any', comment: '' },
 ];
 
+/**
+ * Opens the preset-selection popup.
+ * @param {object} screen   - the blessed screen
+ * @param {object} ruleCtrl - the RuleController (mutated `_modalActive`)
+ * @param {function(preset: object)} onSelect - called with the chosen preset;
+ *                           the caller then opens the Add form filled with it.
+ */
 function showPresetPopup(screen, ruleCtrl, onSelect) {
+  // Row indexes before PRESETS[0]: the list begins with a header row + divider.
+  const ROW_OFFSET = 2; // (index 0 = header, index 1 = divider)
+
   const overlay = blessed.box({
     parent: screen,
     top: 'center',
@@ -37,6 +66,7 @@ function showPresetPopup(screen, ruleCtrl, onSelect) {
     },
   });
 
+  // Title bar
   blessed.box({
     parent: overlay,
     top: 0,
@@ -50,6 +80,7 @@ function showPresetPopup(screen, ruleCtrl, onSelect) {
     style: { bg: '#1a5276' },
   });
 
+  // The browsable list of presets
   const list = blessed.list({
     parent: overlay,
     top: 4,
@@ -66,6 +97,7 @@ function showPresetPopup(screen, ruleCtrl, onSelect) {
     },
   });
 
+  // Render each preset as one padded row.
   const items = PRESETS.map(p => {
     const port = p.port || 'any';
     const proto = p.protocol.toUpperCase();
@@ -78,9 +110,10 @@ function showPresetPopup(screen, ruleCtrl, onSelect) {
   list.setItems([header, divider, ...items]);
   list.select(0);
 
+  // Enter on a preset selects it → destroy popup and pass along.
   list.on('select', (item, index) => {
-    if (index < 2) return;
-    const preset = PRESETS[index - 2];
+    if (index < ROW_OFFSET) return; // clicking the header/divider does nothing
+    const preset = PRESETS[index - ROW_OFFSET];
     overlay.hide();
     const idx = screen.children.indexOf(overlay);
     if (idx !== -1) screen.children.splice(idx, 1);
@@ -90,11 +123,13 @@ function showPresetPopup(screen, ruleCtrl, onSelect) {
     onSelect(preset);
   });
 
+  // Esc is handled separately so the user can abandon selection.
   list.key(['escape'], () => {
     screen.removeListener('keypress', onKey);
     dismiss();
   });
 
+  // Static hint footer
   blessed.box({
     parent: overlay,
     bottom: 0,
@@ -105,10 +140,12 @@ function showPresetPopup(screen, ruleCtrl, onSelect) {
     tags: true,
   });
 
+  // While open, swallow global keys.
   ruleCtrl._modalActive = true;
   list.focus();
   screen.render();
 
+  // Fallback close handler (covers Esc/q even if the list didn't grab it).
   const dismiss = () => {
     overlay.hide();
     const idx = screen.children.indexOf(overlay);

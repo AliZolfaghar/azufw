@@ -1,7 +1,29 @@
 'use strict';
 
+/**
+ * ============================================================================
+ * WELCOME POPUP  —  shown once on startup
+ * ----------------------------------------------------------------------------
+ * A promise-based popup containing:
+ *   • App title
+ *   • Description of what the tool does
+ *   • Safety warning about firewall modifications + SSH lock-out risk
+ *   • Author / email / GitHub links
+ *   • A green "Accept and Start" button
+ *
+ * `src/index.js` awaits this promise before building the real UI — the user
+ * cannot interact with the app until they accept (or close the popup).
+ * ============================================================================
+ */
+
 const blessed = require('neo-blessed');
 
+/**
+ * Shows the welcome popup and resolves only once the user has accepted
+ * (either by Enter key or by pressing the button).
+ * @param {object} screen - the blessed screen
+ * @returns {Promise<void>} resolves after the popup is dismissed
+ */
 function showWelcome(screen) {
   return new Promise((resolve) => {
     const overlay = blessed.box({
@@ -18,6 +40,7 @@ function showWelcome(screen) {
       },
     });
 
+    // Title bar
     blessed.box({
       parent: overlay,
       top: 0,
@@ -31,6 +54,7 @@ function showWelcome(screen) {
       style: { bg: '#1a5276' },
     });
 
+    // App description
     blessed.box({
       parent: overlay,
       top: 4,
@@ -41,6 +65,7 @@ function showWelcome(screen) {
       tags: true,
     });
 
+    // Divider
     blessed.box({
       parent: overlay,
       top: 7,
@@ -51,6 +76,7 @@ function showWelcome(screen) {
       tags: true,
     });
 
+    // Blurb
     blessed.box({
       parent: overlay,
       top: 8,
@@ -61,6 +87,7 @@ function showWelcome(screen) {
       tags: true,
     });
 
+    // Safety disclaimer / root requirement — always visible so it can't be missed.
     blessed.box({
       parent: overlay,
       top: 12,
@@ -71,6 +98,7 @@ function showWelcome(screen) {
       tags: true,
     });
 
+    // Divider
     blessed.box({
       parent: overlay,
       top: 16,
@@ -81,6 +109,7 @@ function showWelcome(screen) {
       tags: true,
     });
 
+    // Author info
     blessed.box({
       parent: overlay,
       top: 17,
@@ -91,6 +120,7 @@ function showWelcome(screen) {
       tags: true,
     });
 
+    // Accept button
     const acceptBtn = blessed.button({
       parent: overlay,
       bottom: 1,
@@ -109,12 +139,16 @@ function showWelcome(screen) {
 
     acceptBtn.focus();
 
+    /**
+     * Hides + destroys the popup and settles the promise.
+     */
     const dismiss = () => {
       overlay.destroy();
       screen.render();
       resolve();
     };
 
+    // Enter anywhere in the popup behaves like clicking the button.
     acceptBtn.on('press', dismiss);
     screen.onceKey(['enter'], () => {
       if (overlay.parent) dismiss();

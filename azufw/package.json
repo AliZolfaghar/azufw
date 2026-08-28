@@ -1,6 +1,6 @@
 {
   "name": "azufw",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "description": "TUI tool for managing UFW firewall on Linux with neo-blessed",
   "main": "src/index.js",
   "bin": {

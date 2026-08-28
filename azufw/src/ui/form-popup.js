@@ -1,13 +1,60 @@
 'use strict';
 
+/**
+ * ============================================================================
+ * FORM POPUP  —  the Add/Edit rule dialog
+ * ----------------------------------------------------------------------------
+ * Rendered when the user presses A (Add) or Enter (Edit) on a rule.
+ *
+ * The form has TWO kinds of fields, both classified by their `_choices` property:
+ *
+ *   • Choice fields (Action, Protocol)  — displayed as `[n/N] value` and
+ *     cycled with Space / Left / Right.
+ *   • Text fields (Port, From, To, Comment) — plain text that supports
+ *     left/right/home/end cursor movement. The cursor is simulated visually by
+ *     splitin the string and wrapping the character at the cursor position in a
+ *     white-on-black tag (see updateInputDisplay below).
+ *
+ * IMPORTANT quirk handled here:
+ *   neo-blessed textboxes try to intercept ALL keystrokes for editing. Since we
+ *   implement our own cursor simulation, we must STRIP the widget's built-in
+ *   keypress listener (in setupTextareaInput) by scheduling it for the next tick
+ *   and replacing it with a no-op BEFORE any user input can land — otherwise the
+ *   widget would both edit itself AND we'd edit, producing double characters.
+ *
+ * All keystrokes flow through `handleKey()`, which returns true when consumed
+ * (so callers know not to reprocess the event).
+ * ============================================================================
+ */
+
 const blessed = require('neo-blessed');
 
+/**
+ * Order (and hence tab order) of all form fields.
+ * Mirrors the order of the `fields` array below and the label rows.
+ * @type {string[]}
+ */
 const FIELDS = ['action', 'port', 'protocol', 'from', 'to', 'comment'];
 
+/**
+ * Opens the Add/Edit form popup centered on the screen.
+ *
+ * @param {object} screen   - the blessed screen
+ * @param {Rule|null} rule  - an EXISTING rule (Edit mode) or null (Add mode).
+ *                           Preset-driven Adds pass a Rule with number 0 so they
+ *                           behave identically to full Adds.
+ * @param {function(values: object, existingRule: Rule|null)} onSave - called when
+ *                           Ctrl+S fires. `existingRule` matches the `rule`
+ *                           argument (null for pure Adds).
+ * @param {function()}        onCancel - called when Esc is pressed.
+ * @returns {object} popup object ({handleKey, dismiss, active})
+ */
 function showFormPopup(screen, rule, onSave, onCancel) {
+  // number>0 ⟺ the rule already exists in UFW → Edit, otherwise Add.
   const isEdit = rule && rule.number > 0;
   const mode = isEdit ? 'edit' : 'add';
 
+  // --- Frame ---------------------------------------------------------------
   const overlay = blessed.box({
     parent: screen,
     top: 'center',
@@ -22,6 +69,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     },
   });
 
+  // Title bar shows a different label per mode.
   const title = isEdit
     ? `{bold}{cyan-fg}Edit Rule #${rule.number}{/cyan-fg}{/bold}`
     : `{bold}{green-fg}Add New Rule{/green-fg}{/bold}`;
@@ -39,11 +87,17 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     style: { bg: '#1a5276' },
   });
 
+  // Widgets for each field, indexed by FIELDS name.
   const formInputs = {};
-  let currentFieldIndex = 0;
+
+  // Cursor position (character index) for each TEXT field.
   const cursorPositions = {};
   FIELDS.forEach(k => { cursorPositions[k] = 0; });
 
+  /**
+   * Field descriptor list. `value` seeds the initial content.
+   * Choice fields list their allowed options.
+   */
   const fields = [
     { key: 'action', label: 'Action', type: 'choice', choices: ['ALLOW', 'DENY', 'REJECT'], value: rule ? rule.action : 'ALLOW' },
     { key: 'port', label: 'Port', type: 'input', value: rule ? rule.port : '' },
@@ -53,6 +107,13 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     { key: 'comment', label: 'Comment', type: 'input', value: rule ? rule.comment : '' },
   ];
 
+  /**
+   * Redraws a text widget with a simulated visible cursor inline.
+   * The widget itself doesn't render textbox cursors in boxes reliably, so we
+   * build a tagged string where the cursor cell is highlighted with reverse video.
+   * @param {object} widget   - the blessed widget being rendered
+   * @param {string} fieldKey  - FIELDS key used to index cursorPositions
+   */
   function updateInputDisplay(widget, fieldKey) {
     const val = widget.getValue();
     const pos = cursorPositions[fieldKey];
@@ -63,9 +124,13 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     widget.setContent(display);
   }
 
+  /**
+   * Creates one visible row (label + widget) per field.
+   */
   fields.forEach((field, idx) => {
     const yPos = 4 + idx;
 
+    // Gray label column
     blessed.text({
       parent: overlay,
       top: yPos,
@@ -77,6 +142,8 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     });
 
     if (field.type === 'choice') {
+      // Choice widget is just an inert box whose content we rewrite on cycling.
+      // Marks itself with `_choices` so the handler code knows → isChoice.
       const choiceBox = blessed.box({
         parent: overlay,
         top: yPos,
@@ -94,6 +161,8 @@ function showFormPopup(screen, rule, onSave, onCancel) {
       choiceBox._currentChoice = field.choices.indexOf(field.value);
       formInputs[field.key] = choiceBox;
     } else {
+      // Text widget: a textbox (value-aware), but we take over all editing
+      // ourselves. `_choices === undefined` marks it as a text field.
       const input = blessed.textbox({
         parent: overlay,
         top: yPos,
@@ -114,6 +183,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     }
   });
 
+  // --- Static footer hints -----------------------------------------------------
   blessed.box({
     parent: overlay,
     bottom: 2,
@@ -134,6 +204,9 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     tags: true,
   });
 
+  // --- Editing helpers (operate on the CURRENTLY focused field) ---------------
+
+  /** Moves the highlight background onto field[`index`]. */
   function highlightField(index) {
     currentFieldIndex = index;
     FIELDS.forEach((key, i) => {
@@ -143,6 +216,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     });
   }
 
+  /** Focuses the current field / widget. */
   function focusCurrentField() {
     const key = FIELDS[currentFieldIndex];
     const widget = formInputs[key];
@@ -151,6 +225,12 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     }
   }
 
+  /**
+   * Neo-blessed textboxes enter a "reading" phase (they capture keys internally).
+   * When we leave a text field we must end that phase, otherwise Tab/Esc/etc. get
+   * swallowed. The exact contract is: if the widget has `_done`, call it('stop'),
+   * and always un-grabKeys from the screen.
+   */
   function endCurrentFieldRead() {
     const key = FIELDS[currentFieldIndex];
     const widget = formInputs[key];
@@ -166,6 +246,9 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     }
   }
 
+  /**
+   * Collects the current values from all widgets into `{ key: value }`.
+   */
   function getFormValues() {
     const values = {};
     for (const key of FIELDS) {
@@ -180,6 +263,9 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     return values;
   }
 
+  // --- Character-level editing primitives ---------------------------------------
+
+  /** Cycles a choice field FORWARD (next choice). */
   function cycleChoice() {
     const key = FIELDS[currentFieldIndex];
     const widget = formInputs[key];
@@ -189,6 +275,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     widget.setContent(` [${widget._currentChoice + 1}/${widget._choices.length}] ${val} `);
   }
 
+  /** Cycles a choice field BACKWARD (previous choice). */
   function cycleChoiceBack() {
     const key = FIELDS[currentFieldIndex];
     const widget = formInputs[key];
@@ -198,6 +285,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     widget.setContent(` [${widget._currentChoice + 1}/${widget._choices.length}] ${val} `);
   }
 
+  /** Inserts a character at the cursor in the current text field. */
   function insertChar(ch) {
     const fkey = FIELDS[currentFieldIndex];
     const widget = formInputs[fkey];
@@ -212,6 +300,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     screen.render();
   }
 
+  /** Deletes the character BEFORE the cursor ( ← Backspace ). */
   function deleteCharBack() {
     const fkey = FIELDS[currentFieldIndex];
     const widget = formInputs[fkey];
@@ -227,6 +316,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     screen.render();
   }
 
+  /** Deletes the character AT the cursor ( Del / Delete ). */
   function deleteCharForward() {
     const fkey = FIELDS[currentFieldIndex];
     const widget = formInputs[fkey];
@@ -241,6 +331,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     screen.render();
   }
 
+  /** Moves the simulated cursor LEFT in the current text field. */
   function moveCursorLeft() {
     const fkey = FIELDS[currentFieldIndex];
     const widget = formInputs[fkey];
@@ -252,6 +343,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     }
   }
 
+  /** Moves the simulated cursor RIGHT in the current text field. */
   function moveCursorRight() {
     const fkey = FIELDS[currentFieldIndex];
     const widget = formInputs[fkey];
@@ -264,6 +356,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     }
   }
 
+  /** Jumps the cursor to the START of the current text field. */
   function moveCursorHome() {
     const fkey = FIELDS[currentFieldIndex];
     const widget = formInputs[fkey];
@@ -275,6 +368,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     }
   }
 
+  /** Jumps the cursor to the END of the current text field. */
   function moveCursorEnd() {
     const fkey = FIELDS[currentFieldIndex];
     const widget = formInputs[fkey];
@@ -287,6 +381,13 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     }
   }
 
+  /**
+   * NEUTRALIZES the built-in textbox editing on a widget.
+   * See the header comment for the full explanation. We schedule this for the next
+   * tick, because neo-blessed installs its real listener during focus() (which
+   * happens in the tick that calls this). After that we swap it for a no-op.
+   * The switch must happen once; `__listener` guards the double-run.
+   */
   function setupTextareaInput(widget, fieldKey) {
     process.nextTick(() => {
       if (!widget.__listener) return;
@@ -301,6 +402,9 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     });
   }
 
+  // --- Field navigation ------------------------------------------------------
+
+  /** Tab / Down: move focus to the field AFTER the current one (wraps). */
   function tabField() {
     endCurrentFieldRead();
     currentFieldIndex = (currentFieldIndex + 1) % FIELDS.length;
@@ -313,6 +417,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     screen.render();
   }
 
+  /** Shift+Tab / Up: move focus to the field BEFORE the current one (wraps). */
   function tabFieldBack() {
     endCurrentFieldRead();
     currentFieldIndex = (currentFieldIndex - 1 + FIELDS.length) % FIELDS.length;
@@ -333,6 +438,8 @@ function showFormPopup(screen, rule, onSave, onCancel) {
   }
   screen.render();
 
+  // --- Public popup object returned to the caller -------------------------------
+
   const popup = {
     overlay,
     mode,
@@ -340,6 +447,9 @@ function showFormPopup(screen, rule, onSave, onCancel) {
     formInputs,
     active: true,
 
+    /**
+     * Closes the popup without saving; ends the textediting phase.
+     */
     dismiss() {
       this.active = false;
       endCurrentFieldRead();
@@ -350,6 +460,13 @@ function showFormPopup(screen, rule, onSave, onCancel) {
       screen.render();
     },
 
+    /**
+     * Keyboard dispatcher. src/index.js forwards every screen keypress here while
+     * `active` is true.
+     * @param {string|null} ch  - the typed character (single-char allows frame)
+     * @param {object|null} key  - blessed key object (name, ctrl, shift, ...)
+     * @returns {boolean} true if the key was consumed (do NOT reprocess lower)
+     */
     handleKey(ch, key) {
       if (!this.active || !key) return false;
 
@@ -426,6 +543,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
         return true;
       }
       if (key.ctrl && key.name === 's') {
+        // Save — require at least a port or an IP so we don't save an empty rule.
         const values = getFormValues();
         if (!values.port && !values.from) return true;
         this.dismiss();
@@ -437,6 +555,7 @@ function showFormPopup(screen, rule, onSave, onCancel) {
         onCancel();
         return true;
       }
+      // Fallback: plain printable character lands in a text field.
       if (ch && !isChoice && isInput && !/^[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]$/.test(ch)) {
         insertChar(ch);
         return true;
