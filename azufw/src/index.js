@@ -1,5 +1,25 @@
 'use strict';
 
+/**
+ * ============================================================================
+ * AZUFW  —  application entry point & global keyboard controller
+ * ----------------------------------------------------------------------------
+ * This is the glue layer. It:
+ *   1. Validates environment (sudo, UFW).
+ *   2. Builds every screen component.
+ *   3. Registers ALL global (screen-level) key bindings.
+ *   4. Delegates the keys a popup needs to that popup.
+ *
+ * View-state protocol used throughout:
+ *   ruleCtrl._modalActive  — true while ANY popup is open (form/help/error/
+ *                            preset/confirm/stats). Every global handler bails
+ *                            out at the top when this is true, EXCEPT the form
+ *                            delegator at the bottom which routes keys into
+ *                            formPopup.handleKey().
+ *   rightPanel._state     — 'view' | 'history' (see src/ui/right-panel.js).
+ * ============================================================================
+ */
+
 const { checkSudo, bootstrapUfw } = require('./cli/checker');
 const { isMockMode, getMockMessage } = require('./utils/platform');
 const { detectSshPort } = require('./utils/ssh-detector');
@@ -17,48 +37,54 @@ const RuleController = require('./controllers/rule-controller');
 const HistoryController = require('./controllers/history-controller');
 
 async function main() {
-  // Platform check
+  // --- 1. Environment -----------------------------------------------------
+
+  // Platform check (Windows only → tells the user we're faking).
   if (isMockMode) {
     console.log(getMockMessage());
   }
 
-  // Check sudo (Linux only)
+  // Root check (Linux only) — exits if not root.
   checkSudo();
 
-  // Detect SSH port
+  // SSH port is used to flag critical rules and block their deletion.
   const sshPort = detectSshPort();
 
-  // Bootstrap UFW
+  // Make sure UFW exists+is active before we draw anything.
   const ufwInfo = await bootstrapUfw();
 
-  // Create screen
+  // --- 2. Build UI -------------------------------------------------------
+
   const screen = createScreen();
 
-  // Show welcome/acceptance popup
+  // Welcome popup that the user must accept before we load any rules.
   await showWelcome(screen);
 
-  // Create UI components
   const header = createHeader(screen);
   const footer = createFooter(screen);
   const leftPanel = createLeftPanel(screen);
   const rightPanel = createRightPanel(screen);
 
-  // Controllers
+  // --- 3. Controllers ----------------------------------------------------
+
   const historyCtrl = new HistoryController();
   const ruleCtrl = new RuleController(leftPanel, rightPanel, header, footer, screen, historyCtrl, sshPort, ufwInfo.status);
 
-  // Load initial rules
+  // Initial rule fetch + first paint.
   await ruleCtrl.loadRules();
 
-  // --- Key bindings ---
+  // --- 4. Global keybindings -----------------------------------------------
+  // Every handler starts with `if (ruleCtrl._modalActive) return;` so popups
+  // own the screen while they're open. Exceptions: the form delegator below,
+  // which routes keys to the form popup instead.
 
-  // Up/Down: navigate rules
+  // ↑/↓ (rows) — handled at the SCREEN level, not the list, so both
+  // view mode AND history mode react the same way.
   leftPanel.on('select item', (item, index) => {
     if (ruleCtrl._modalActive) return;
     ruleCtrl.handleListSelect(index);
   });
 
-  // Global key bindings
   screen.key(['up'], () => {
     if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view') {
@@ -84,8 +110,10 @@ async function main() {
   screen.key(['enter'], () => {
     if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view') {
+      // View mode: Enter edits the selected rule.
       ruleCtrl.enterEditMode();
     } else if (rightPanel._state === 'history') {
+      // History mode: Enter restores the highlighted deleted rule back to UFW.
       const idx = getSelectedHistoryIndex(rightPanel);
       const entries = historyCtrl.getEntries();
       if (idx >= 0 && idx < entries.length) {
@@ -100,6 +128,7 @@ async function main() {
 
   screen.key(['escape'], () => {
     if (ruleCtrl._modalActive) return;
+    // Esc in history mode goes back to a normal rule view.
     if (rightPanel._state === 'history') {
       showViewMode(rightPanel, ruleCtrl.selectedRule, sshPort);
       screen.render();
@@ -135,7 +164,7 @@ async function main() {
     return process.exit(0);
   });
 
-  // H: show history
+  // H: swap right panel to history view.
   screen.key(['h'], () => {
     if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view') {
@@ -145,7 +174,7 @@ async function main() {
     }
   });
 
-  // Delete key: delete rule
+  // Delete key: rule deletion (guarded: critical SSH rules can't be deleted).
   screen.key(['delete'], () => {
     if (ruleCtrl._modalActive) return;
     if (rightPanel._state === 'view' && ruleCtrl.selectedRule && !ruleCtrl.selectedRule.isCritical) {
@@ -167,14 +196,17 @@ async function main() {
     showHelp(screen, ruleCtrl);
   });
 
-  // Form popup key handler: delegate to popup when active
+  // --- Form popup key handler ----------------------------------------------
+  // When a form is open, ALL keys route through it (formOverride the screen keys
+  // above by intercepting first at the screen level).
   screen.on('keypress', (ch, key) => {
     if (ruleCtrl.formPopup && ruleCtrl.formPopup.active) {
       ruleCtrl.formPopup.handleKey(ch, key);
     }
   });
 
-  // Render
+  // --- 5. First paint -----------------------------------------------------
+
   screen.render();
 }
 
